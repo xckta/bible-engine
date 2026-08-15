@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bible Only Engine</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;color:#171717;background:#f5f3ee}body{margin:0}.wrap{max-width:980px;margin:auto;padding:36px 20px}.card{background:white;border:1px solid #dedbd2;border-radius:16px;padding:22px;margin:16px 0;box-shadow:0 4px 18px #0000000a}h1{font-size:32px;margin:0 0 8px}p{line-height:1.5}.muted{color:#666}textarea{width:100%;min-height:112px;box-sizing:border-box;border:1px solid #bbb;border-radius:10px;padding:14px;font:inherit}button{background:#191919;color:white;border:0;border-radius:10px;padding:12px 18px;font-weight:700;cursor:pointer}.row{display:flex;gap:14px;flex-wrap:wrap;align-items:center}.tag{display:inline-block;background:#efede7;border-radius:999px;padding:5px 9px;margin:3px;font-size:12px}.claim{border-left:4px solid #999;padding-left:12px;margin:12px 0}.evidence{font-family:Georgia,serif;line-height:1.55;border-top:1px solid #eee;padding:11px 0}.citation{font-family:ui-sans-serif,system-ui;font-weight:700;font-size:13px}.bad{color:#9b1c1c}.good{color:#256029}.hidden{display:none}</style>
+</head>
+<body><main class="wrap">
+<h1>Bible Only Engine</h1>
+<p class="muted">Closed-corpus research. Generated claims must cite retrieved verses from the translations loaded into this database.</p>
+<section class="card">
+<div id="status" class="muted">Checking local engine…</div>
+<div id="translations" class="row"></div>
+<textarea id="q" placeholder="Example: Compare Jude 1:6 in the loaded translations. What does the text explicitly state?"></textarea>
+<div class="row" style="margin-top:12px"><button id="ask">Search + Answer</button><label><input type="checkbox" id="semantic" checked> semantic retrieval</label><label><input type="checkbox" id="generate" checked> model synthesis</label></div>
+</section>
+<section id="answer" class="card hidden"></section>
+<section id="evidence" class="card hidden"></section>
+</main>
+<script>
+let available=[];
+async function boot(){const h=await fetch('/api/health').then(r=>r.json());available=h.translations;document.getElementById('status').innerHTML=`Database: <b>${h.translations.reduce((a,x)=>a+x.verse_count,0)}</b> verses · embeddings: <b>${h.embedding_count}</b> · Ollama: <b class="${h.ollama_reachable?'good':'bad'}">${h.ollama_reachable?'connected':'not connected (extractive fallback)'}</b>`;const box=document.getElementById('translations');box.innerHTML=h.translations.map(t=>`<label class="tag"><input type="checkbox" class="tr" value="${t.code}" checked> ${t.code} (${t.verse_count})</label>`).join('')}
+async function ask(){const question=document.getElementById('q').value.trim();if(!question)return;const selected=[...document.querySelectorAll('.tr:checked')].map(x=>x.value);const a=document.getElementById('answer'),e=document.getElementById('evidence');a.classList.remove('hidden');a.innerHTML='Working…';const r=await fetch('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question,translations:selected,semantic:document.getElementById('semantic').checked,generate:document.getElementById('generate').checked})});const d=await r.json();if(!r.ok){a.innerHTML=`<div class="bad">${d.detail||'Request failed'}</div>`;return}a.innerHTML=`<div class="muted">Mode: ${d.mode}</div><h2>Answer</h2><p>${esc(d.summary)}</p>`+(d.claims||[]).map(c=>`<div class="claim"><div>${esc(c.text)}</div><div class="muted">${c.classification} · ${(c.citations||[]).map(esc).join('; ')}</div></div>`).join('');e.classList.remove('hidden');e.innerHTML='<h2>Retrieved Scripture</h2>'+(d.evidence||[]).map(x=>`<div class="evidence"><div class="citation">${esc(x.id)} · ${esc(x.citation)}</div>${esc(x.text)}</div>`).join('')}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+document.getElementById('ask').onclick=ask;boot();
+</script></body></html>
