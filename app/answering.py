@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from .providers import CodexClient, ProviderError
 from .retrieval import Evidence
@@ -15,7 +15,7 @@ Authority = Literal["canonical", "deuterocanon", "reference", "mixed"]
 class Claim(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str
-    evidence_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str]
     classification: Classification
     authority: Authority
 
@@ -24,10 +24,32 @@ class ModelAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
     answer: str
     claims: list[Claim]
-    insufficient_evidence: bool = False
+    insufficient_evidence: bool
 
 
-SCHEMA = ModelAnswer.model_json_schema()
+def _strict_output_schema(schema: dict) -> dict:
+    """Normalize Pydantic JSON Schema to Codex/OpenAI Structured Outputs rules.
+
+    Structured Outputs requires every property of every object to appear in
+    ``required``. Defaults are therefore represented by explicit values from the
+    model rather than optional schema fields.
+    """
+    def walk(node):
+        if isinstance(node, dict):
+            out = {k: walk(v) for k, v in node.items() if k != "default"}
+            props = out.get("properties")
+            if isinstance(props, dict):
+                out["required"] = list(props.keys())
+                out["additionalProperties"] = False
+            return out
+        if isinstance(node, list):
+            return [walk(v) for v in node]
+        return node
+
+    return walk(schema)
+
+
+SCHEMA = _strict_output_schema(ModelAnswer.model_json_schema())
 
 SYSTEM = """BIBLE ENGINE // CLOSED-CORPUS RESEARCH PROTOCOL
 
