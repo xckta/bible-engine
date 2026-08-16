@@ -11,6 +11,7 @@ _ALLOWED_REASONING = {"minimal", "low", "medium", "high", "xhigh"}
 class Settings:
     db_path: Path = Path(os.getenv("BIBLE_DB_PATH", "data/bible.db"))
     local_settings_path: Path = Path(os.getenv("BIBLE_LOCAL_SETTINGS_PATH", "data/local_settings.json"))
+    studies_path: Path = Path(os.getenv("BIBLE_STUDIES_PATH", "data/studies"))
     codex_command: str = os.getenv("BIBLE_CODEX_COMMAND", "codex")
     codex_model: str = os.getenv("BIBLE_CODEX_MODEL", "gpt-5.6-luna")
     codex_reasoning_effort: str = os.getenv("BIBLE_CODEX_REASONING_EFFORT", "medium").lower()
