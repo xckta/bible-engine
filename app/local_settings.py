@@ -4,6 +4,18 @@ import json
 import os
 from pathlib import Path
 
+DEFAULT_PREFERENCES = {
+    "reasoning_effort": "medium",
+    "top_k_canonical": 8,
+    "top_k_reference": 8,
+    "include_deuterocanon": True,
+    "include_reference": True,
+    "study_context_chars": 6000,
+    "motion": "full",
+}
+_ALLOWED_REASONING = {"low", "medium", "high", "xhigh"}
+_ALLOWED_MOTION = {"full", "reduced"}
+
 
 def load_settings(path: Path) -> dict:
     try:
@@ -41,3 +53,37 @@ def masked_key(path: Path) -> str | None:
     if len(key) <= 8:
         return "••••••••"
     return key[:4] + "••••••••" + key[-4:]
+
+
+def preferences(path: Path) -> dict:
+    raw = load_settings(path).get("preferences", {})
+    raw = raw if isinstance(raw, dict) else {}
+    out = {**DEFAULT_PREFERENCES, **raw}
+    effort = str(out.get("reasoning_effort", "medium")).lower()
+    out["reasoning_effort"] = effort if effort in _ALLOWED_REASONING else "medium"
+    try:
+        out["top_k_canonical"] = max(1, min(int(out["top_k_canonical"]), 20))
+    except (TypeError, ValueError):
+        out["top_k_canonical"] = 8
+    try:
+        out["top_k_reference"] = max(0, min(int(out["top_k_reference"]), 40))
+    except (TypeError, ValueError):
+        out["top_k_reference"] = 8
+    try:
+        out["study_context_chars"] = max(1000, min(int(out["study_context_chars"]), 20000))
+    except (TypeError, ValueError):
+        out["study_context_chars"] = 6000
+    out["include_deuterocanon"] = bool(out.get("include_deuterocanon", True))
+    out["include_reference"] = bool(out.get("include_reference", True))
+    motion = str(out.get("motion", "full")).lower()
+    out["motion"] = motion if motion in _ALLOWED_MOTION else "full"
+    return out
+
+
+def save_preferences(path: Path, updates: dict) -> dict:
+    current = preferences(path)
+    current.update({k: v for k, v in updates.items() if k in DEFAULT_PREFERENCES})
+    data = load_settings(path)
+    data["preferences"] = current
+    save_settings(path, data)
+    return preferences(path)
