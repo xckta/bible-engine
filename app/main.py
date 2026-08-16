@@ -8,25 +8,26 @@ from pydantic import BaseModel, Field
 
 from .answering import answer_question
 from .config import settings
-from .db import init_db, list_translations, session
+from .db import init_db, library_stats, list_translations, session
+from .esv import ESVClient, ESVError
+from .local_settings import esv_key, masked_key, save_settings
 from .providers import CodexClient, ProviderError
-from .retrieval import retrieve
+from .retrieval import hydrate_canonical_esv, retrieve
 
-app = FastAPI(title="Bible Only Engine", version="0.2.1")
-codex = CodexClient(
-    command=settings.codex_command,
-    model=settings.codex_model,
-    reasoning_effort=settings.codex_reasoning_effort,
-    timeout=settings.codex_timeout,
-)
+app = FastAPI(title="Bible Engine // Oracle", version="0.3.0")
+codex = CodexClient(settings.codex_command, settings.codex_model, settings.codex_reasoning_effort, settings.codex_timeout)
 
 
 class AskRequest(BaseModel):
-    question: str = Field(min_length=2, max_length=2000)
-    translations: list[str] = Field(default_factory=list)
-    top_k: int = Field(default=settings.top_k, ge=1, le=50)
-    context_radius: int = Field(default=settings.context_radius, ge=0, le=5)
-    semantic: bool = False
+    question: str = Field(min_length=2, max_length=4000)
+    include_deuterocanon: bool = True
+    include_reference: bool = True
+    top_k_canonical: int = Field(default=settings.top_k_canonical, ge=1, le=20)
+    top_k_reference: int = Field(default=settings.top_k_reference, ge=0, le=20)
+
+
+class ESVKeyRequest(BaseModel):
+    api_key: str = Field(default="", max_length=500)
 
 
 @app.on_event("startup")
@@ -36,61 +37,104 @@ def startup() -> None:
 
 @app.get("/")
 def root():
-    index = Path(__file__).parent / "static" / "index.html"
-    return FileResponse(index)
+    return FileResponse(Path(__file__).parent / "static" / "index.html")
+
+
+@app.get("/app.js")
+def app_js():
+    return FileResponse(Path(__file__).parent / "static" / "app.js", media_type="application/javascript")
+
+
+@app.get("/styles.css")
+def styles_css():
+    return FileResponse(Path(__file__).parent / "static" / "styles.css", media_type="text/css")
 
 
 @app.get("/api/health")
 def health():
-    with session(settings.db_path) as conn:
-        translations = list_translations(conn)
-        embedding_count = int(conn.execute("SELECT COUNT(*) n FROM embeddings").fetchone()["n"])
     status = codex.status()
+    with session(settings.db_path) as conn:
+        stats = library_stats(conn)
+        translations = list_translations(conn)
     return {
         "status": "ok" if status.ready else "provider_required",
+        "version": "0.3.0",
         "database": str(settings.db_path),
+        "model": settings.codex_model,
+        "reasoning_effort": settings.codex_reasoning_effort,
+        "codex": {
+            "installed": status.installed,
+            "ready": status.ready,
+            "version": status.version,
+            "detail": status.detail,
+            "executable": status.executable,
+        },
+        "esv": {"configured": bool(esv_key(settings.local_settings_path)), "masked_key": masked_key(settings.local_settings_path)},
+        "library": stats,
         "translations": translations,
-        "embedding_count": embedding_count,
-        "codex_installed": status.installed,
-        "codex_ready": status.ready,
-        "codex_version": status.version,
-        "codex_detail": status.detail,
-        "authentication": "checked by the first real codex exec request",
+    }
+
+
+@app.get("/api/library")
+def library():
+    with session(settings.db_path) as conn:
+        return library_stats(conn)
+
+
+@app.get("/api/settings")
+def get_settings():
+    return {
+        "esv_configured": bool(esv_key(settings.local_settings_path)),
+        "esv_masked_key": masked_key(settings.local_settings_path),
         "model": settings.codex_model,
         "reasoning_effort": settings.codex_reasoning_effort,
     }
 
 
-@app.get("/api/translations")
-def translations():
-    with session(settings.db_path) as conn:
-        return list_translations(conn)
+@app.post("/api/settings/esv")
+def set_esv_key(req: ESVKeyRequest):
+    key = req.api_key.strip()
+    if not key:
+        save_settings(settings.local_settings_path, {"esv_api_key": ""})
+        return {"ok": True, "configured": False, "masked_key": None}
+    try:
+        ESVClient(key, settings.esv_base_url).fetch("John 1:1")
+    except ESVError as exc:
+        raise HTTPException(400, detail={"code": "invalid_esv_key", "message": str(exc)}) from exc
+    save_settings(settings.local_settings_path, {"esv_api_key": key})
+    return {"ok": True, "configured": True, "masked_key": masked_key(settings.local_settings_path)}
 
 
 @app.post("/api/ask")
 def ask(req: AskRequest):
     status = codex.status()
     if not status.ready:
-        detail = status.detail or "Codex CLI is required but could not be started."
-        raise HTTPException(503, detail=detail)
+        raise HTTPException(503, detail={"code": "codex_unavailable", "message": status.detail or "Codex CLI is unavailable."})
 
     with session(settings.db_path) as conn:
-        available = {r["code"] for r in list_translations(conn)}
-        selected = [c.upper() for c in req.translations] if req.translations else sorted(available)
-        missing = [c for c in selected if c not in available]
-        if missing:
-            raise HTTPException(400, detail=f"Translations not loaded: {', '.join(missing)}")
-        passages = retrieve(
+        evidence = retrieve(
             conn,
             req.question,
-            selected,
-            req.top_k,
-            req.context_radius,
-            req.semantic,
+            req.top_k_canonical,
+            req.top_k_reference,
+            req.include_deuterocanon,
+            req.include_reference,
         )
 
+    if any(e.tier == "canonical" for e in evidence):
+        key = esv_key(settings.local_settings_path)
+        if not key:
+            raise HTTPException(428, detail={
+                "code": "esv_key_required",
+                "message": "Canonical Scripture is configured to display only ESV. Add your ESV API key in Oracle Settings.",
+            })
+        try:
+            evidence = hydrate_canonical_esv(evidence, ESVClient(key, settings.esv_base_url))
+        except ESVError as exc:
+            raise HTTPException(502, detail={"code": "esv_error", "message": str(exc)}) from exc
+
     try:
-        result = answer_question(req.question, passages, codex)
+        result = answer_question(req.question, evidence, codex)
     except ProviderError as exc:
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail={"code": "codex_error", "message": str(exc)}) from exc
     return result.__dict__

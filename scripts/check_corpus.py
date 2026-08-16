@@ -1,23 +1,15 @@
 from __future__ import annotations
-
 import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from app.config import settings
-from app.db import init_db, list_translations, session
-
-MIN_VERSES = 30000
-REQUIRED = {"WEB", "ASV"}
-
+from app.db import init_db,session
 init_db(settings.db_path)
 with session(settings.db_path) as conn:
-    rows = {row["code"]: int(row["verse_count"]) for row in list_translations(conn)}
-
-missing = [code for code in sorted(REQUIRED) if rows.get(code, 0) < MIN_VERSES]
-if missing:
-    print("Full corpus missing or incomplete: " + ", ".join(missing))
+    web_can=int(conn.execute("SELECT COUNT(*) n FROM verses v JOIN translations t ON t.id=v.translation_id WHERE t.code='WEB' AND v.corpus_tier='canonical'").fetchone()['n'])
+    web_deut=int(conn.execute("SELECT COUNT(*) n FROM verses v JOIN translations t ON t.id=v.translation_id WHERE t.code='WEB' AND v.corpus_tier='deuterocanon'").fetchone()['n'])
+    asv=int(conn.execute("SELECT COUNT(*) n FROM verses v JOIN translations t ON t.id=v.translation_id WHERE t.code='ASV' AND v.corpus_tier='canonical'").fetchone()['n'])
+if web_can < 30000 or asv < 30000 or web_deut < 3000:
+    print(f'Corpus incomplete: WEB canon={web_can}, WEB deuterocanon={web_deut}, ASV canon={asv}')
     raise SystemExit(1)
-
-print("Full WEB + ASV corpus is ready.")
+print(f'Corpus ready: WEB canon={web_can}, WEB deuterocanon={web_deut}, ASV canon={asv}')

@@ -1,53 +1,101 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bible Only Engine</title>
-<style>
-:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;color:#171717;background:#f5f3ee}body{margin:0}.wrap{max-width:980px;margin:auto;padding:36px 20px}.card{background:white;border:1px solid #dedbd2;border-radius:16px;padding:22px;margin:16px 0;box-shadow:0 4px 18px #0000000a}h1{font-size:32px;margin:0 0 8px}p{line-height:1.5}.muted{color:#666}textarea{width:100%;min-height:112px;box-sizing:border-box;border:1px solid #bbb;border-radius:10px;padding:14px;font:inherit}button{background:#191919;color:white;border:0;border-radius:10px;padding:12px 18px;font-weight:700;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}.row{display:flex;gap:14px;flex-wrap:wrap;align-items:center}.tag{display:inline-block;background:#efede7;border-radius:999px;padding:5px 9px;margin:3px;font-size:12px}.claim{border-left:4px solid #999;padding-left:12px;margin:12px 0}.evidence{font-family:Georgia,serif;line-height:1.55;border-top:1px solid #eee;padding:11px 0}.citation{font-family:ui-sans-serif,system-ui;font-weight:700;font-size:13px}.bad{color:#9b1c1c}.good{color:#256029}.hidden{display:none}.provider{font-weight:700}</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#070706">
+  <title>Bible Engine // Oracle</title>
+  <link rel="stylesheet" href="/styles.css">
 </head>
-<body><main class="wrap">
-<h1>Bible Only Engine</h1>
-<p class="muted">Closed-corpus Bible research. Codex may synthesize only from the Scripture evidence retrieved from the selected translations.</p>
-<section class="card">
-<div id="status" class="muted">Checking Bible Engine…</div>
-<div id="translations" class="row"></div>
-<textarea id="q" placeholder="Example: Compare Jude 1:6 in the loaded translations. What does the text explicitly state?"></textarea>
-<div class="row" style="margin-top:12px"><button id="ask">Ask Bible Engine</button></div>
-</section>
-<section id="answer" class="card hidden"></section>
-<section id="evidence" class="card hidden"></section>
-</main>
-<script>
-let available=[];
-async function boot(){
-  const h=await fetch('/api/health').then(r=>r.json());
-  available=h.translations;
-  const verses=h.translations.reduce((a,x)=>a+x.verse_count,0);
-  const provider=h.codex_ready
-    ? `<span class="good">ready</span>`
-    : `<span class="bad">not ready</span>`;
-  document.getElementById('status').innerHTML=`Bible corpus: <b>${verses}</b> verses · Codex: <b>${provider}</b> · model: <b>${esc(h.model)}</b> · reasoning: <b>${esc(h.reasoning_effort)}</b>`;
-  document.getElementById('ask').disabled=!h.codex_ready;
-  if(!h.codex_ready){
-    document.getElementById('status').innerHTML += `<br><span class="bad">Close this window and run START_BIBLE_ENGINE.bat. Bible Engine requires Codex CLI signed in with ChatGPT.</span>`;
-  }
-  const box=document.getElementById('translations');
-  box.innerHTML=h.translations.map(t=>`<label class="tag"><input type="checkbox" class="tr" value="${esc(t.code)}" checked> ${esc(t.code)} (${t.verse_count})</label>`).join('');
-}
-async function ask(){
-  const question=document.getElementById('q').value.trim();
-  if(!question)return;
-  const selected=[...document.querySelectorAll('.tr:checked')].map(x=>x.value);
-  const a=document.getElementById('answer'),e=document.getElementById('evidence');
-  a.classList.remove('hidden');a.innerHTML='Working…';e.classList.add('hidden');
-  const r=await fetch('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question,translations:selected})});
-  const d=await r.json();
-  if(!r.ok){a.innerHTML=`<div class="bad">${esc(d.detail||'Request failed')}</div>`;return}
-  a.innerHTML=`<div class="muted">Mode: ${esc(d.mode)}</div><h2>Answer</h2><p>${esc(d.summary)}</p>`+(d.claims||[]).map(c=>`<div class="claim"><div>${esc(c.text)}</div><div class="muted">${esc(c.classification)} · ${(c.citations||[]).map(esc).join('; ')}</div></div>`).join('');
-  e.classList.remove('hidden');
-  e.innerHTML='<h2>Retrieved Scripture</h2>'+(d.evidence||[]).map(x=>`<div class="evidence"><div class="citation">${esc(x.id)} · ${esc(x.citation)}</div>${esc(x.text)}</div>`).join('');
-}
-function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-document.getElementById('ask').onclick=ask;boot();
-</script></body></html>
+<body>
+  <div class="grain"></div>
+  <div class="aura aura-a"></div><div class="aura aura-b"></div>
+  <header class="topbar">
+    <button class="brand" id="brandBtn" aria-label="Bible Engine home">
+      <span class="brand-mark">Ω</span>
+      <span><b>BIBLE ENGINE</b><small>ORACLE // CLOSED CORPUS</small></span>
+    </button>
+    <div class="top-actions">
+      <button class="ghost" id="libraryBtn">LIBRARY</button>
+      <button class="ghost" id="settingsBtn">SETTINGS</button>
+      <span class="pulse-dot" id="statusDot"></span>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero" id="hero">
+      <div class="sigil-wrap" aria-hidden="true">
+        <div class="sigil ring r1"></div><div class="sigil ring r2"></div><div class="sigil ring r3"></div>
+        <div class="sigil-cross"></div><div class="sigil-core">א</div>
+      </div>
+      <p class="eyebrow">CANON // DEUTEROCANON // SECOND TEMPLE</p>
+      <h1>Consult the corpus.</h1>
+      <p class="lede">Canonical claims are grounded in ESV. Ancient reference texts remain visible, separate, and cited.</p>
+      <div class="search-frame">
+        <div class="search-glow"></div>
+        <textarea id="question" spellcheck="true" placeholder="Ask a passage, doctrine, parallel, or Second Temple context…"></textarea>
+        <div class="search-footer">
+          <div class="toggles">
+            <label><input id="deutToggle" type="checkbox" checked><span>Deuterocanon</span></label>
+            <label><input id="refToggle" type="checkbox" checked><span>Reference library</span></label>
+          </div>
+          <button class="consult" id="askBtn"><span>CONSULT</span><i>↗</i></button>
+        </div>
+      </div>
+      <div class="examples">
+        <button data-q="Compare Jude 1:6 with 1 Enoch 6–16. What is explicit in Jude, and what does Enoch add as historical context?">JUDE + 1 ENOCH</button>
+        <button data-q="What does Genesis 6:1–4 explicitly say, and what related traditions appear in the reference library?">GENESIS 6</button>
+        <button data-q="Explain Jude 1:9 using canonical evidence first, then any Assumption of Moses material available in the reference corpus.">JUDE 9</button>
+      </div>
+    </section>
+
+    <section class="consulting hidden" id="consulting">
+      <div class="oracle-loader">
+        <div class="o-ring o1"></div><div class="o-ring o2"></div><div class="o-ring o3"></div>
+        <div class="o-eye">✦</div>
+      </div>
+      <div class="phase" id="phase">TRACING CANONICAL TEXT</div>
+      <div class="phase-line"><span></span></div>
+    </section>
+
+    <section class="result hidden" id="result">
+      <div class="result-head">
+        <div><p class="eyebrow">ORACLE RESPONSE</p><h2 id="resultTitle">Synthesis</h2></div>
+        <div class="mode-chip" id="modeChip">CLOSED CORPUS</div>
+      </div>
+      <article class="answer" id="answerText"></article>
+      <div class="claims" id="claims"></div>
+      <div class="evidence-head"><h3>Evidence ledger</h3><span id="evidenceCount"></span></div>
+      <div class="evidence-grid" id="evidence"></div>
+      <div class="esv-notice" id="esvNotice">
+        <strong>ESV attribution.</strong> Scripture quotations marked “ESV” are from the ESV® Bible (The Holy Bible, English Standard Version®), © 2001 by Crossway, a publishing ministry of Good News Publishers. Used by permission. All rights reserved. Users may not copy or download more than 500 verses of the ESV Bible or more than one half of any book. <a href="https://www.esv.org/" target="_blank" rel="noreferrer">ESV.org ↗</a>
+      </div>
+    </section>
+  </main>
+
+  <aside class="drawer" id="libraryDrawer" aria-hidden="true">
+    <div class="drawer-head"><div><p class="eyebrow">CORPUS MAP</p><h2>Reference Library</h2></div><button class="x" data-close="libraryDrawer">×</button></div>
+    <p class="drawer-copy">These shelves are intentionally distinct. “Reference” does not mean “canonical.”</p>
+    <div class="shelf-stats" id="shelfStats"></div>
+    <div id="works"></div>
+  </aside>
+  <div class="scrim hidden" id="scrim"></div>
+
+  <dialog id="settingsDialog">
+    <form method="dialog" class="settings-card" id="settingsForm">
+      <div class="drawer-head"><div><p class="eyebrow">LOCAL CONFIGURATION</p><h2>Oracle Settings</h2></div><button class="x" value="cancel">×</button></div>
+      <div class="setting-block">
+        <label for="esvKey">ESV API key</label>
+        <input id="esvKey" type="password" autocomplete="off" placeholder="Paste your ESV API key">
+        <p>The key is stored only in <code>data/local_settings.json</code> on this computer and is excluded from Git. Canonical ESV text is fetched on demand and is not stored in the corpus database. <a href="https://api.esv.org/" target="_blank" rel="noreferrer">Get an ESV API key ↗</a></p>
+        <div class="setting-status" id="esvStatus"></div>
+      </div>
+      <div class="model-readout"><span>MODEL</span><b id="modelName">gpt-5.6-luna</b><span>REASONING</span><b id="effort">medium</b></div>
+      <div class="dialog-actions"><button class="ghost" value="cancel">CANCEL</button><button type="button" class="consult" id="saveSettings">SAVE + VERIFY</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast hidden" id="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

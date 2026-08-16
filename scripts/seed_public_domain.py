@@ -1,10 +1,9 @@
 from __future__ import annotations
-import subprocess, sys
+import subprocess,sys
 from pathlib import Path
-
 pairs=[
- ('WEB','World English Bible Classic','data/sources/web','Public Domain','https://ebible.org/find/details.php?all=1&id=eng-web'),
- ('ASV','American Standard Version (1901)','data/sources/asv','Public Domain','https://ebible.org/find/details.php?all=1&id=eng-asv'),
+ ('WEB','World English Bible Classic + Deuterocanon/Apocrypha','data/sources/web','Public Domain','https://ebible.org/eng-web/'),
+ ('ASV','American Standard Version (1901)','data/sources/asv','Public Domain','https://ebible.org/eng-asv/'),
 ]
 for code,name,path,lic,url in pairs:
     if not Path(path).exists(): raise SystemExit(f'Missing {path}; run scripts/fetch_public_domain.py first')

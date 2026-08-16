@@ -2,8 +2,10 @@
 __pycache__/
 .pytest_cache/
 *.pyc
+*.egg-info/
 .env
 data/bible.db
+data/bible.db-*
+data/local_settings.json
 data/sources/
-data/downloads/
-*.egg-info/
+bible-engine-startup.log
