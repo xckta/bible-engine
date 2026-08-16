@@ -3,7 +3,7 @@ from pathlib import Path
 
 from app.db import init_db, session, upsert_translation, replace_translation_verses
 from app.original_core import strongs_from_oshb_lemma
-from app.original_parsers import parse_hebrew_lexicon, parse_lxx_lemma_file, parse_oshb_xml
+from app.original_parsers import parse_hebrew_lexicon, parse_lxx_lemma_file, parse_oshb_xml, parse_tischendorf_file
 from app.original_queries import lemma_report, search_words, translation_parallels, verse_words
 from app.original_storage import ensure_original_schema, replace_lxx_lemma_occurrences, replace_original_words, upsert_original_source
 
@@ -14,6 +14,28 @@ def test_oshb_aramaic_and_augmented_strongs(tmp_path: Path):
     rows=parse_oshb_xml(p)
     assert rows[0]['word_language']=='Aramaic'
     assert strongs_from_oshb_lemma('122 a')=='H122A'
+
+
+def test_tischendorf_duplicate_slots_get_unique_record_identity(tmp_path: Path):
+    p=tmp_path/'JOH.TUP'
+    p.write_text(
+        'JOH 1:1.1 Ἐν PREP 1722 ἐν ! ἐν\n'
+        'JOH 1:1.1 Ἐν PREP 1722 ἐν ! ἐν\n'
+        'JOH 1:1.1 Ἐν2 PREP 1722 ἐν ! ἐν\n'
+        'JOH 1:1.2 ἀρχῇ N-DSF 746 ἀρχή ! ἀρχή\n',
+        encoding='utf-8',
+    )
+    rows=parse_tischendorf_file(p)
+    assert len(rows)==3
+    assert [r['position'] for r in rows]==[1,2,3]
+    assert len({r['source_word_id'] for r in rows})==3
+    assert rows[0]['source_word_id'].startswith('JOH.TUP:L1:1:1.1')
+    assert rows[1]['source_word_id'].startswith('JOH.TUP:L3:1:1.1')
+
+    db=tmp_path/'tisch.db';init_db(db)
+    with session(db) as c:
+        sid=upsert_original_source(c,code='TISCH',name='T',language='Greek',testament='New Testament',license_text='x',source_url='u',attribution='a')
+        assert replace_original_words(c,sid,rows)==3
 
 
 def test_deep_lab_queries_and_aramaic_filter(tmp_path: Path):
