@@ -31,6 +31,13 @@ jobs:
         run: |
           python scripts/seed_textual_witnesses.py
           python scripts/check_textual_witnesses.py
+      - name: First-run Atlas integration
+        env:
+          BIBLE_DB_PATH: /tmp/bible-engine-atlas.db
+          BIBLE_ATLAS_SOURCE: /tmp/openbible-ancient.jsonl
+        run: |
+          python scripts/seed_atlas.py
+          python scripts/check_atlas.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -41,6 +48,7 @@ jobs:
           node --check app/static/originals.js
           node --check app/static/graph.js
           node --check app/static/research.js
+          node --check app/static/atlas.js
       - name: Python compile check
         run: python -m compileall -q app scripts tests
 
@@ -67,6 +75,14 @@ jobs:
         run: |
           python scripts/seed_intertext_graph.py
           python scripts/check_intertext_graph.py
+      - name: Windows Atlas first-run smoke
+        shell: pwsh
+        env:
+          BIBLE_DB_PATH: ${{ runner.temp }}\bible-engine-atlas.db
+          BIBLE_ATLAS_SOURCE: ${{ runner.temp }}\openbible-ancient.jsonl
+        run: |
+          python scripts/seed_atlas.py
+          python scripts/check_atlas.py
       - name: PowerShell launcher syntax
         shell: pwsh
         run: |
