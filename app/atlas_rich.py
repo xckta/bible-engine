@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS atlas_places (
   latitude REAL,
   longitude REAL,
   geometry_json TEXT NOT NULL DEFAULT '',
+  geometry_path TEXT NOT NULL DEFAULT '',
   modern_states_json TEXT NOT NULL DEFAULT '[]',
   confidence REAL,
   confidence_label TEXT NOT NULL DEFAULT '',
@@ -60,8 +61,15 @@ CREATE INDEX IF NOT EXISTS atlas_occ_place_idx ON atlas_occurrences(place_id,boo
 '''
 
 
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {str(r[1]) for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
 def ensure_atlas_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    cols=_columns(conn,"atlas_places")
+    if "geometry_path" not in cols:
+        conn.execute("ALTER TABLE atlas_places ADD COLUMN geometry_path TEXT NOT NULL DEFAULT ''")
 
 
 def _json(value) -> str:
@@ -102,7 +110,6 @@ def _geometry_center(geometry: dict | None) -> tuple[float | None, float | None]
     if geometry.get("type") == "Point":
         return _lonlat(coords)
     points: list[tuple[float, float]] = []
-
     def walk(node):
         if isinstance(node, (list, tuple)):
             if len(node) >= 2 and isinstance(node[0], (int, float)) and isinstance(node[1], (int, float)):
@@ -113,102 +120,87 @@ def _geometry_center(geometry: dict | None) -> tuple[float | None, float | None]
     walk(coords)
     if not points:
         return None, None
-    west = min(x for x, _ in points); east = max(x for x, _ in points)
-    south = min(y for _, y in points); north = max(y for _, y in points)
-    return (south + north) / 2, (west + east) / 2
+    west=min(x for x,_ in points);east=max(x for x,_ in points);south=min(y for _,y in points);north=max(y for _,y in points)
+    return (south+north)/2,(west+east)/2
 
 
 def _normalize_confidence(raw) -> float | None:
-    value = _float(raw)
-    if value is None:
-        return None
-    if value > 1:
-        value = value / 1000.0 if value <= 1000 else value / 10000.0
-    return max(0.0, min(1.0, value))
+    value=_float(raw)
+    if value is None:return None
+    if value>1:value=value/1000.0 if value<=1000 else value/10000.0
+    return max(0.0,min(1.0,value))
 
 
 def _confidence_label(value: float | None) -> str:
-    if value is None: return "source-reported"
-    if value >= .65: return "higher"
-    if value >= .30: return "moderate"
+    if value is None:return "source-reported"
+    if value>=.65:return "higher"
+    if value>=.30:return "moderate"
     return "lower"
 
 
 def _verse_row(place_id: str, verse: dict) -> dict | None:
-    readable = str(verse.get("readable") or verse.get("reference") or "").strip()
-    osis = str(verse.get("osis") or verse.get("usx") or "").strip()
-    book = chapter = number = None
+    readable=str(verse.get("readable") or verse.get("reference") or "").strip();osis=str(verse.get("osis") or verse.get("usx") or "").strip();book=chapter=number=None
     if osis:
-        m = re.match(r"^([1-3]?[A-Za-z]+)\.(\d+)\.(\d+)$", osis.replace(" ", ""))
-        if m:
-            book = normalize_book(m.group(1)); chapter, number = int(m.group(2)), int(m.group(3))
+        m=re.match(r"^([1-3]?[A-Za-z]+)\.(\d+)\.(\d+)$",osis.replace(" ",""))
+        if m:book=normalize_book(m.group(1));chapter,number=int(m.group(2)),int(m.group(3))
     if not book and readable:
-        m = re.match(r"^(.+?)\s+(\d+):(\d+)", readable)
-        if m:
-            book = normalize_book(m.group(1)); chapter, number = int(m.group(2)), int(m.group(3))
-    if not book or chapter is None or number is None or book not in BOOK_ORDER:
-        return None
-    return {"place_id":place_id,"book":book,"book_order":BOOK_ORDER[book],"chapter":chapter,"verse":number,
-            "reference":readable or f"{book} {chapter}:{number}","osis":osis,
-            "translations":verse.get("translations") or [],"instance_types":verse.get("instance_types") or {}}
+        m=re.match(r"^(.+?)\s+(\d+):(\d+)",readable)
+        if m:book=normalize_book(m.group(1));chapter,number=int(m.group(2)),int(m.group(3))
+    if not book or chapter is None or number is None or book not in BOOK_ORDER:return None
+    return {"place_id":place_id,"book":book,"book_order":BOOK_ORDER[book],"chapter":chapter,"verse":number,"reference":readable or f"{book} {chapter}:{number}","osis":osis,"translations":verse.get("translations") or [],"instance_types":verse.get("instance_types") or {}}
+
+
+def _identification_types(ident: dict) -> list[str]:
+    raw=ident.get("types") or ident.get("type") or []
+    if isinstance(raw,str):raw=[raw]
+    if isinstance(raw,dict):raw=list(raw)
+    if not isinstance(raw,(list,tuple)):return []
+    return [str(x).strip() for x in raw if str(x).strip()]
 
 
 def _rich_record(obj: dict) -> tuple[dict, list[dict]] | None:
-    place_id = str(obj.get("id") or "").strip(); name = str(obj.get("friendly_id") or obj.get("name") or "").strip()
-    if not place_id or not name: return None
-    aliases = []
-    counts = obj.get("translation_name_counts") or {}
-    if isinstance(counts, dict): aliases.extend(str(x) for x in counts if x)
+    place_id=str(obj.get("id") or "").strip();name=str(obj.get("friendly_id") or obj.get("name") or "").strip()
+    if not place_id or not name:return None
+    aliases=[];counts=obj.get("translation_name_counts") or {}
+    if isinstance(counts,dict):aliases.extend(str(x) for x in counts if x)
     for item in obj.get("names") or []:
-        if isinstance(item, dict) and item.get("name"): aliases.append(str(item["name"]))
-        elif isinstance(item, str): aliases.append(item)
-    aliases = list(dict.fromkeys(x for x in aliases if x and x.casefold()!=name.casefold()))
+        if isinstance(item,dict) and item.get("name"):aliases.append(str(item["name"]))
+        elif isinstance(item,str):aliases.append(item)
+    aliases=list(dict.fromkeys(x for x in aliases if x and x.casefold()!=name.casefold()))
     candidates=[]
-    for i, ident in enumerate(obj.get("identifications") or []):
-        if not isinstance(ident, dict): continue
-        score=ident.get("score"); ident_score=(score.get("time_total") or score.get("total") or score.get("score")) if isinstance(score,dict) else score
+    for i,ident in enumerate(obj.get("identifications") or []):
+        if not isinstance(ident,dict):continue
+        ident_types=_identification_types(ident);score=ident.get("score");ident_score=(score.get("time_total") or score.get("total") or score.get("score")) if isinstance(score,dict) else score
         for j,res in enumerate(ident.get("resolutions") or []):
-            if not isinstance(res,dict): continue
+            if not isinstance(res,dict):continue
             lat,lon=_lonlat(res.get("lonlat"))
-            if lat is None: lat,lon=_geometry_center(res.get("geometry"))
-            if lat is None or lon is None: continue
-            time_score=_float(res.get("best_time_score")); path_score=_float(res.get("best_path_score")); raw_score=_float(ident_score)
+            if lat is None:lat,lon=_geometry_center(res.get("geometry"))
+            if lat is None or lon is None:continue
+            time_score=_float(res.get("best_time_score"));path_score=_float(res.get("best_path_score"));raw_score=_float(ident_score)
             rank=raw_score*(time_score/1000.0) if raw_score is not None and time_score is not None else (raw_score if raw_score is not None else (time_score or path_score or 0.0))
-            candidates.append({"identification_index":i,"resolution_index":j,"lat":lat,"lon":lon,"rank":rank,
-                               "type":res.get("type") or ident.get("type") or "","description":_clean_markup(res.get("description") or ident.get("description") or ""),
-                               "modern_basis_id":res.get("modern_basis_id") or ""})
-    candidates.sort(key=lambda x:x["rank"],reverse=True); best=candidates[0] if candidates else None
-    lat=_float(obj.get("latitude")); lon=_float(obj.get("longitude"))
+            resolved_type=str((ident_types[0] if ident_types else "") or res.get("type") or ident.get("type") or "").strip()
+            candidates.append({"identification_index":i,"resolution_index":j,"lat":lat,"lon":lon,"rank":rank,"type":resolved_type,"types":ident_types,"description":_clean_markup(res.get("description") or ident.get("description") or ""),"modern_basis_id":res.get("modern_basis_id") or ""})
+    candidates.sort(key=lambda x:x["rank"],reverse=True);best=candidates[0] if candidates else None
+    lat=_float(obj.get("latitude"));lon=_float(obj.get("longitude"))
     if lat is None or lon is None:
-        dlat,dlon=_lonlat(obj.get("lonlat")); lat=lat if lat is not None else dlat; lon=lon if lon is not None else dlon
-    if (lat is None or lon is None) and best: lat,lon=best["lat"],best["lon"]
-    geometry=obj.get("geometry") if isinstance(obj.get("geometry"),dict) else None
-    confidence=_normalize_confidence(best.get("rank") if best else None)
-    verses=[x for x in (_verse_row(place_id,v) for v in obj.get("verses") or []) if x]
-    return ({"id":place_id,"friendly_id":str(obj.get("friendly_id") or name),"name":name,"preceding_article":str(obj.get("preceding_article") or ""),
-             "place_type":str(obj.get("type") or ""),"detailed_type":str(obj.get("class") or ""),"aliases":aliases,"latitude":lat,"longitude":lon,
-             "geometry":geometry,"modern_states":[],"confidence":confidence,"confidence_label":_confidence_label(confidence),"identification_summary":candidates[:8],
-             "linked_data":obj.get("linked_data") or {},"comment":_clean_markup(obj.get("comment") or ""),"source_format":"openbible-rich","verse_count":len(verses)},verses)
+        dlat,dlon=_lonlat(obj.get("lonlat"));lat=lat if lat is not None else dlat;lon=lon if lon is not None else dlon
+    if (lat is None or lon is None) and best:lat,lon=best["lat"],best["lon"]
+    geometry=obj.get("geometry") if isinstance(obj.get("geometry"),dict) else None;confidence=_normalize_confidence(best.get("rank") if best else None);verses=[x for x in (_verse_row(place_id,v) for v in obj.get("verses") or []) if x]
+    source_type=str(obj.get("type") or "").strip();detailed_type=str(best.get("type") or "").strip() if best else ""
+    return ({"id":place_id,"friendly_id":str(obj.get("friendly_id") or name),"name":name,"preceding_article":str(obj.get("preceding_article") or ""),"place_type":source_type,"detailed_type":detailed_type or source_type,"aliases":aliases,"latitude":lat,"longitude":lon,"geometry":geometry,"geometry_path":str(obj.get("geojson_file") or "").strip(),"modern_states":[],"confidence":confidence,"confidence_label":_confidence_label(confidence),"identification_summary":candidates[:8],"linked_data":obj.get("linked_data") or {},"comment":_clean_markup(obj.get("comment") or ""),"source_format":"openbible-rich","verse_count":len(verses)},verses)
 
 
 def _feature_record(obj: dict) -> tuple[dict, list[dict]] | None:
-    props=obj.get("properties") if isinstance(obj.get("properties"),dict) else {}
-    place_id=str(props.get("id") or obj.get("id") or "").strip(); name=str(props.get("friendly_id") or props.get("name") or "").strip()
+    props=obj.get("properties") if isinstance(obj.get("properties"),dict) else {};place_id=str(props.get("id") or obj.get("id") or "").strip();name=str(props.get("friendly_id") or props.get("name") or "").strip()
     if not place_id or not name:return None
-    refs=props.get("ancient_reference_ids") or props.get("reference_ids") or []; aliases=props.get("alternate_names") or []
+    refs=props.get("ancient_reference_ids") or props.get("reference_ids") or [];aliases=props.get("alternate_names") or []
     if not refs and not aliases and re.fullmatch(r"[0-9A-Z]{4,}",name):return None
-    geometry=obj.get("geometry") if isinstance(obj.get("geometry"),dict) else None; lat,lon=_geometry_center(geometry)
-    aliases=[x.get("name") if isinstance(x,dict) else str(x) for x in aliases]
-    return ({"id":place_id,"friendly_id":str(props.get("friendly_id") or name),"name":name,"preceding_article":str(props.get("preceding_article") or ""),
-             "place_type":str(props.get("type") or props.get("class") or ""),"detailed_type":str(props.get("detailed_type") or ""),"aliases":[x for x in aliases if x],
-             "latitude":lat,"longitude":lon,"geometry":geometry,"modern_states":props.get("inside_modern_states") or [],"confidence":None,
-             "confidence_label":"source-reported","identification_summary":[],"linked_data":{},"comment":_clean_markup(props.get("comment") or ""),
-             "source_format":"openbible-feature","verse_count":0},[])
+    geometry=obj.get("geometry") if isinstance(obj.get("geometry"),dict) else None;lat,lon=_geometry_center(geometry);aliases=[x.get("name") if isinstance(x,dict) else str(x) for x in aliases]
+    return ({"id":place_id,"friendly_id":str(props.get("friendly_id") or name),"name":name,"preceding_article":str(props.get("preceding_article") or ""),"place_type":str(props.get("type") or props.get("class") or ""),"detailed_type":str(props.get("detailed_type") or ""),"aliases":[x for x in aliases if x],"latitude":lat,"longitude":lon,"geometry":geometry,"geometry_path":"","modern_states":props.get("inside_modern_states") or [],"confidence":None,"confidence_label":"source-reported","identification_summary":[],"linked_data":{},"comment":_clean_markup(props.get("comment") or ""),"source_format":"openbible-feature","verse_count":0},[])
 
 
 def parse_openbible_line(line: str) -> tuple[dict, list[dict]] | None:
-    obj=json.loads(line)
-    return _feature_record(obj) if obj.get("type")=="Feature" and isinstance(obj.get("properties"),dict) else _rich_record(obj)
+    obj=json.loads(line);return _feature_record(obj) if obj.get("type")=="Feature" and isinstance(obj.get("properties"),dict) else _rich_record(obj)
 
 
 def iter_openbible(path: Path) -> Iterator[tuple[dict, list[dict]]]:
@@ -222,28 +214,20 @@ def iter_openbible(path: Path) -> Iterator[tuple[dict, list[dict]]]:
 
 def replace_atlas(conn: sqlite3.Connection, records: Iterable[tuple[dict, list[dict]]]) -> dict:
     ensure_atlas_schema(conn);conn.execute("DELETE FROM atlas_occurrences");conn.execute("DELETE FROM atlas_places_fts");conn.execute("DELETE FROM atlas_places")
-    place_sql=("INSERT INTO atlas_places(id,friendly_id,name,preceding_article,place_type,detailed_type,aliases_json,latitude,longitude,geometry_json,modern_states_json,"
-               "confidence,confidence_label,identification_summary_json,linked_data_json,comment,source_format,source_label,source_url,license,verse_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+    place_sql=("INSERT INTO atlas_places(id,friendly_id,name,preceding_article,place_type,detailed_type,aliases_json,latitude,longitude,geometry_json,geometry_path,modern_states_json,confidence,confidence_label,identification_summary_json,linked_data_json,comment,source_format,source_label,source_url,license,verse_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
     occ_sql=("INSERT OR IGNORE INTO atlas_occurrences(place_id,book,book_order,chapter,verse,reference,osis,translations_json,instance_types_json) VALUES(?,?,?,?,?,?,?,?,?)")
     places=occurrences=resolved=0;formats={}
     for place,verses in records:
-        conn.execute(place_sql,(place["id"],place.get("friendly_id",""),place["name"],place.get("preceding_article",""),place.get("place_type",""),place.get("detailed_type",""),
-            _json(place.get("aliases",[])),place.get("latitude"),place.get("longitude"),_json(place.get("geometry")) if place.get("geometry") else "",_json(place.get("modern_states",[])),
-            place.get("confidence"),place.get("confidence_label",""),_json(place.get("identification_summary",[])),_json(place.get("linked_data",{})),place.get("comment",""),
-            place.get("source_format",""),"OpenBible.info Bible Geocoding Data",OPENBIBLE_URL,OPENBIBLE_LICENSE,int(place.get("verse_count",len(verses)))))
-        conn.execute("INSERT INTO atlas_places_fts(place_id,name,friendly_id,aliases) VALUES(?,?,?,?)",(place["id"],place["name"],place.get("friendly_id",""),_json(place.get("aliases",[]))))
-        places+=1;resolved+=int(place.get("latitude") is not None and place.get("longitude") is not None);formats[place.get("source_format","unknown")]=formats.get(place.get("source_format","unknown"),0)+1
-        for row in verses:
-            conn.execute(occ_sql,(row["place_id"],row["book"],row["book_order"],row["chapter"],row["verse"],row["reference"],row["osis"],_json(row.get("translations",[])),_json(row.get("instance_types",{}))));occurrences+=1
+        conn.execute(place_sql,(place["id"],place.get("friendly_id",""),place["name"],place.get("preceding_article",""),place.get("place_type",""),place.get("detailed_type",""),_json(place.get("aliases",[])),place.get("latitude"),place.get("longitude"),_json(place.get("geometry")) if place.get("geometry") else "",place.get("geometry_path",""),_json(place.get("modern_states",[])),place.get("confidence"),place.get("confidence_label",""),_json(place.get("identification_summary",[])),_json(place.get("linked_data",{})),place.get("comment",""),place.get("source_format",""),"OpenBible.info Bible Geocoding Data",OPENBIBLE_URL,OPENBIBLE_LICENSE,int(place.get("verse_count",len(verses)))))
+        conn.execute("INSERT INTO atlas_places_fts(place_id,name,friendly_id,aliases) VALUES(?,?,?,?)",(place["id"],place["name"],place.get("friendly_id",""),_json(place.get("aliases",[]))));places+=1;resolved+=int(place.get("latitude") is not None and place.get("longitude") is not None);formats[place.get("source_format","unknown")]=formats.get(place.get("source_format","unknown"),0)+1
+        for row in verses:conn.execute(occ_sql,(row["place_id"],row["book"],row["book_order"],row["chapter"],row["verse"],row["reference"],row["osis"],_json(row.get("translations",[])),_json(row.get("instance_types",{}))));occurrences+=1
     return {"place_count":places,"resolved_count":resolved,"occurrence_count":occurrences,"formats":formats}
 
 
 def atlas_stats(conn: sqlite3.Connection) -> dict:
-    ensure_atlas_schema(conn);row=conn.execute("SELECT COUNT(*) place_count,SUM(CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 1 ELSE 0 END) resolved_count,SUM(verse_count) source_verse_count FROM atlas_places").fetchone()
-    occurrence_count=int(conn.execute("SELECT COUNT(*) n FROM atlas_occurrences").fetchone()["n"]);type_count=int(conn.execute("SELECT COUNT(DISTINCT COALESCE(NULLIF(detailed_type,''),place_type)) n FROM atlas_places").fetchone()["n"])
-    return {"ready":int(row["place_count"] or 0)>=250 and int(row["resolved_count"] or 0)>=150,"place_count":int(row["place_count"] or 0),"resolved_count":int(row["resolved_count"] or 0),
-            "occurrence_count":occurrence_count,"source_verse_count":int(row["source_verse_count"] or 0),"type_count":type_count,"country_count":len(atlas_countries(conn)),
-            "source":"OpenBible.info Bible Geocoding Data","license":OPENBIBLE_LICENSE,"source_url":OPENBIBLE_URL}
+    ensure_atlas_schema(conn);row=conn.execute("SELECT COUNT(*) place_count,SUM(CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 1 ELSE 0 END) resolved_count,SUM(verse_count) source_verse_count FROM atlas_places").fetchone();occurrence_count=int(conn.execute("SELECT COUNT(*) n FROM atlas_occurrences").fetchone()["n"]);type_count=int(conn.execute("SELECT COUNT(DISTINCT COALESCE(NULLIF(detailed_type,''),place_type)) n FROM atlas_places").fetchone()["n"])
+    place_count=int(row["place_count"] or 0);resolved_count=int(row["resolved_count"] or 0)
+    return {"ready":place_count>=250 and resolved_count>=150 and type_count>=5,"place_count":place_count,"resolved_count":resolved_count,"occurrence_count":occurrence_count,"source_verse_count":int(row["source_verse_count"] or 0),"type_count":type_count,"country_count":len(atlas_countries(conn)),"source":"OpenBible.info Bible Geocoding Data","license":OPENBIBLE_LICENSE,"source_url":OPENBIBLE_URL}
 
 
 def _decode_place(row: sqlite3.Row,include_geometry: bool=False) -> dict:
@@ -256,13 +240,11 @@ def _decode_place(row: sqlite3.Row,include_geometry: bool=False) -> dict:
     if include_geometry:
         try:d["geometry"]=json.loads(raw) if raw else None
         except json.JSONDecodeError:d["geometry"]=None
-    d["resolved"]=d.get("latitude") is not None and d.get("longitude") is not None
-    return d
+    d["resolved"]=d.get("latitude") is not None and d.get("longitude") is not None;return d
 
 
 def _search_term(q:str)->str:
-    tokens=re.findall(r"[\w'’-]+",q,flags=re.UNICODE)
-    return " ".join(f'"{token.replace(chr(34),"")}"' for token in tokens if token)[:300]
+    tokens=re.findall(r"[\w'’-]+",q,flags=re.UNICODE);return " ".join(f'"{token.replace(chr(34),"")}"' for token in tokens if token)[:300]
 
 
 def query_places(conn: sqlite3.Connection,*,q:str="",book:str="",place_type:str="",country:str="",west:float|None=None,south:float|None=None,east:float|None=None,north:float|None=None,resolved_only:bool=True,limit:int=250,offset:int=0)->dict:
@@ -277,9 +259,7 @@ def query_places(conn: sqlite3.Connection,*,q:str="",book:str="",place_type:str=
     if country:clauses.append("lower(p.modern_states_json) LIKE ?");args.append(f'%"{country.lower()}"%')
     if resolved_only:clauses.append("p.latitude IS NOT NULL AND p.longitude IS NOT NULL")
     if None not in (west,south,east,north):clauses.extend(["p.longitude BETWEEN ? AND ?","p.latitude BETWEEN ? AND ?"]);args.extend([west,east,south,north])
-    where=" WHERE "+" AND ".join(clauses) if clauses else "";total=int(conn.execute("SELECT COUNT(DISTINCT p.id) n FROM atlas_places p"+join+where,args).fetchone()["n"])
-    rows=conn.execute("SELECT DISTINCT p.* FROM atlas_places p"+join+where+" ORDER BY CASE WHEN p.verse_count>0 THEN 0 ELSE 1 END,p.verse_count DESC,p.name COLLATE NOCASE LIMIT ? OFFSET ?",args+[max(1,min(limit,1000)),max(0,offset)]).fetchall()
-    return {"items":[_decode_place(r) for r in rows],"total":total,"limit":limit,"offset":offset}
+    where=" WHERE "+" AND ".join(clauses) if clauses else "";total=int(conn.execute("SELECT COUNT(DISTINCT p.id) n FROM atlas_places p"+join+where,args).fetchone()["n"]);rows=conn.execute("SELECT DISTINCT p.* FROM atlas_places p"+join+where+" ORDER BY CASE WHEN p.verse_count>0 THEN 0 ELSE 1 END,p.verse_count DESC,p.name COLLATE NOCASE LIMIT ? OFFSET ?",args+[max(1,min(limit,1000)),max(0,offset)]).fetchall();return {"items":[_decode_place(r) for r in rows],"total":total,"limit":limit,"offset":offset}
 
 
 def get_place(conn: sqlite3.Connection,place_id:str,occurrence_limit:int=250)->dict:
@@ -291,8 +271,7 @@ def get_place(conn: sqlite3.Connection,place_id:str,occurrence_limit:int=250)->d
             raw=item.pop(field,"")
             try:item[field.removesuffix("_json")]=json.loads(raw) if raw else ([] if field.startswith("translations") else {})
             except json.JSONDecodeError:item[field.removesuffix("_json")]=[] if field.startswith("translations") else {}
-    place["occurrences"]=occ;place["books"]=[dict(r) for r in conn.execute("SELECT book,COUNT(*) count FROM atlas_occurrences WHERE place_id=? GROUP BY book ORDER BY MIN(book_order)",(place_id,)).fetchall()]
-    return place
+    place["occurrences"]=occ;place["books"]=[dict(r) for r in conn.execute("SELECT book,COUNT(*) count FROM atlas_occurrences WHERE place_id=? GROUP BY book ORDER BY MIN(book_order)",(place_id,)).fetchall()];return place
 
 
 def atlas_types(conn:sqlite3.Connection)->list[dict]:
@@ -313,8 +292,7 @@ def atlas_countries(conn:sqlite3.Connection)->list[dict]:
 
 
 def distance_km(lat1:float,lon1:float,lat2:float,lon2:float)->float:
-    r=6371.0088;p1,p2=math.radians(lat1),math.radians(lat2);dphi=math.radians(lat2-lat1);dlambda=math.radians(lon2-lon1);a=math.sin(dphi/2)**2+math.cos(p1)*math.cos(p2)*math.sin(dlambda/2)**2
-    return r*2*math.atan2(math.sqrt(a),math.sqrt(1-a))
+    r=6371.0088;p1,p2=math.radians(lat1),math.radians(lat2);dphi=math.radians(lat2-lat1);dlambda=math.radians(lon2-lon1);a=math.sin(dphi/2)**2+math.cos(p1)*math.cos(p2)*math.sin(dlambda/2)**2;return r*2*math.atan2(math.sqrt(a),math.sqrt(1-a))
 
 def nearby(conn:sqlite3.Connection,lat:float,lon:float,radius_km:float=50,limit:int=30,exclude_id:str="")->list[dict]:
     ensure_atlas_schema(conn);lat_delta=radius_km/111.0;lon_delta=radius_km/max(20.0,111.0*math.cos(math.radians(lat)));rows=conn.execute("SELECT * FROM atlas_places WHERE latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ? AND id<>?",(lat-lat_delta,lat+lat_delta,lon-lon_delta,lon+lon_delta,exclude_id)).fetchall();items=[]
@@ -329,6 +307,7 @@ JOURNEYS=[
 {"id":"jesus-galilee","name":"Jesus: Galilee to Jerusalem","category":"gospels","notice":"Selected narrative locations, not a claim that the Gospels present one continuous itinerary in this exact sequence.","stops":[("Nazareth","Luke 4:16"),("Cana","John 2:1"),("Capernaum","Matthew 4:13"),("Sea of Galilee","Mark 1:16"),("Bethsaida","Mark 8:22"),("Caesarea Philippi","Matthew 16:13"),("Bethany","John 11:18"),("Jerusalem","Matthew 21:1")]},
 {"id":"paul-1","name":"Paul: First Missionary Journey","category":"acts","notice":"Ordered Acts stops. Map segments connect stops for orientation; they are not reconstructed ancient road or sea tracks.","stops":[("Antioch","Acts 13:1"),("Seleucia","Acts 13:4"),("Salamis","Acts 13:5"),("Paphos","Acts 13:6"),("Perga","Acts 13:13"),("Pisidian Antioch","Acts 13:14"),("Iconium","Acts 13:51"),("Lystra","Acts 14:6"),("Derbe","Acts 14:6"),("Attalia","Acts 14:25")]},
 {"id":"paul-2","name":"Paul: Second Missionary Journey","category":"acts","notice":"Ordered Acts stops; straight segments are schematic connections between sourced locations.","stops":[("Antioch","Acts 15:35"),("Lystra","Acts 16:1"),("Troas","Acts 16:8"),("Philippi","Acts 16:12"),("Thessalonica","Acts 17:1"),("Berea","Acts 17:10"),("Athens","Acts 17:15"),("Corinth","Acts 18:1"),("Ephesus","Acts 18:19"),("Caesarea","Acts 18:22")]},
+{"id":"paul-3","name":"Paul: Third Missionary Journey","category":"acts","notice":"Selected Acts 18–21 stops. Straight segments show narrative sequence, not reconstructed ancient roads or sailing lanes.","stops":[("Antioch","Acts 18:23"),("Ephesus","Acts 19:1"),("Macedonia","Acts 20:1"),("Troas","Acts 20:5"),("Miletus","Acts 20:15"),("Tyre","Acts 21:3"),("Ptolemais","Acts 21:7"),("Caesarea","Acts 21:8"),("Jerusalem","Acts 21:17")]},
 {"id":"rome","name":"Paul: Voyage to Rome","category":"acts","notice":"Acts 27–28 stop sequence. Sea segments indicate narrative progression only, not a reconstructed sailing track.","stops":[("Caesarea","Acts 27:1"),("Sidon","Acts 27:3"),("Myra","Acts 27:5"),("Cnidus","Acts 27:7"),("Fair Havens","Acts 27:8"),("Malta","Acts 28:1"),("Syracuse","Acts 28:12"),("Rhegium","Acts 28:13"),("Puteoli","Acts 28:13"),("Rome","Acts 28:16")]}
 ]
 
@@ -339,8 +318,7 @@ def _resolve_stop(conn:sqlite3.Connection,name:str,reference:str)->dict|None:
         if book:
             row=conn.execute("SELECT p.* FROM atlas_places p JOIN atlas_occurrences o ON o.place_id=p.id WHERE o.book=? AND o.chapter=? AND o.verse=? AND (lower(p.name)=lower(?) OR lower(p.friendly_id)=lower(?) OR lower(p.aliases_json) LIKE ?) AND p.latitude IS NOT NULL ORDER BY p.confidence DESC NULLS LAST LIMIT 1",(book,chapter,verse,name,name,f'%"{name.lower()}"%')).fetchone()
             if row:return _decode_place(row)
-    rows=conn.execute("SELECT * FROM atlas_places WHERE (lower(name)=lower(?) OR lower(friendly_id)=lower(?) OR lower(aliases_json) LIKE ?) AND latitude IS NOT NULL AND longitude IS NOT NULL ORDER BY verse_count DESC,confidence DESC NULLS LAST LIMIT 5",(name,name,f'%"{name.lower()}"%')).fetchall()
-    return _decode_place(rows[0]) if rows else None
+    rows=conn.execute("SELECT * FROM atlas_places WHERE (lower(name)=lower(?) OR lower(friendly_id)=lower(?) OR lower(aliases_json) LIKE ?) AND latitude IS NOT NULL AND longitude IS NOT NULL ORDER BY verse_count DESC,confidence DESC NULLS LAST LIMIT 5",(name,name,f'%"{name.lower()}"%')).fetchall();return _decode_place(rows[0]) if rows else None
 
 def journey_catalog(conn:sqlite3.Connection)->list[dict]:
     out=[]
