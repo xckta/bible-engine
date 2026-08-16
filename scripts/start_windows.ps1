@@ -31,13 +31,16 @@ function OptionalNative([string]$Label,[scriptblock]$Action){
 function ShowGitBuild(){
   $git=Get-Command git -ErrorAction SilentlyContinue
   if(-not $git -or -not (Test-Path (Join-Path $Root '.git'))){Write-Host 'Git build identity unavailable.' -ForegroundColor DarkGray;return}
-  $branch=(& $git.Source branch --show-current 2>$null).Trim();$commit=(& $git.Source rev-parse --short HEAD 2>$null).Trim();$dirty=@(& $git.Source status --porcelain 2>$null)
-  Write-Host ("Checkout: {0}@{1}" -f ($branch?$branch:'detached'),$commit) -ForegroundColor Cyan;Add-Content $Log ("Checkout: $branch@$commit")
+  $branch=[string](& $git.Source branch --show-current 2>$null);$branch=$branch.Trim()
+  $commit=[string](& $git.Source rev-parse --short HEAD 2>$null);$commit=$commit.Trim()
+  $dirty=@(& $git.Source status --porcelain 2>$null)
+  $branchLabel='detached';if($branch){$branchLabel=$branch}
+  Write-Host ("Checkout: {0}@{1}" -f $branchLabel,$commit) -ForegroundColor Cyan;Add-Content $Log ("Checkout: $branchLabel@$commit")
   if($branch -eq 'main' -and $dirty.Count -eq 0){
     $rc=OptionalNative 'Checking for a safe fast-forward update...' {& $git.Source pull --ff-only origin main}
-    if($rc -eq 0){$commit=(& $git.Source rev-parse --short HEAD 2>$null).Trim();Write-Host "Running main@$commit" -ForegroundColor Green;Add-Content $Log ("Running main@$commit")}
+    if($rc -eq 0){$commit=[string](& $git.Source rev-parse --short HEAD 2>$null);$commit=$commit.Trim();Write-Host "Running main@$commit" -ForegroundColor Green;Add-Content $Log ("Running main@$commit")}
   }elseif($dirty.Count -gt 0){Write-Host 'Automatic update skipped: working tree has local changes. Nothing was overwritten.' -ForegroundColor Yellow;Add-Content $Log 'Automatic update skipped: dirty worktree'}
-  else{Write-Host "Automatic update skipped: checkout is '$branch', not main. Nothing was switched automatically." -ForegroundColor Yellow;Add-Content $Log ("Automatic update skipped: branch $branch")}
+  else{Write-Host "Automatic update skipped: checkout is '$branchLabel', not main. Nothing was switched automatically." -ForegroundColor Yellow;Add-Content $Log ("Automatic update skipped: branch $branchLabel")}
 }
 function Fail([string]$Message){
   Write-Host '';Write-Host '========================================' -ForegroundColor Red
