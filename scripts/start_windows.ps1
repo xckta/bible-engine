@@ -43,6 +43,11 @@ try{
   }else{Write-Host 'Bible corpus ready.' -ForegroundColor DarkGreen}
   & $venv 'scripts\check_reference_library.py' *> $null
   if($LASTEXITCODE -ne 0){Step 'Indexing Second Temple reference shelf...' {& $venv 'scripts\seed_reference_library.py'}}else{Write-Host 'Reference shelf ready.' -ForegroundColor DarkGreen}
+  & $venv 'scripts\check_original_languages.py' *> $null
+  if($LASTEXITCODE -ne 0){
+    Step 'Installing Hebrew + Greek Original-Language Lab...' {& $venv 'scripts\seed_original_languages.py'}
+    Step 'Verifying Original-Language Lab...' {& $venv 'scripts\check_original_languages.py'}
+  }else{Write-Host 'Original-Language Lab ready.' -ForegroundColor DarkGreen}
   Step 'Checking Oracle application...' {& $venv -c "import app.main; print('Application import OK')"}
   $listener=Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
   if($listener){throw 'Port 8000 is already in use. Close the older Bible Engine terminal first.'}
