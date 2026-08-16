@@ -40,6 +40,12 @@ The advanced lab downloads the corrected OpenScriptures e-text of the 1890 Stron
 
 The advanced Greek lab downloads lemma-index metadata from `openscriptures/GreekResources` / the Open Scriptures Septuagint Project. Bible Engine indexes lemma occurrence metadata only. It deliberately does **not** bundle or quote the separately licensed CCAT Septuagint text.
 
+## Biblical Atlas: OpenBible.info Bible Geocoding Data
+
+The rich Biblical Atlas downloads `data/ancient.jsonl` from the OpenBible.info Bible Geocoding Data project to the user's local `data/sources/atlas/` directory. The project catalogs geographic identifications for places mentioned in the Protestant Bible, including source/provenance and uncertainty metadata where present. The dataset is licensed under CC BY 4.0 and is attributed in the Atlas interface to OpenBible.info. Geographic identifications are treated as contextual research data rather than canonical textual evidence.
+
+The optional interactive basemap uses OpenStreetMap tiles when internet access is available and displays the required OpenStreetMap attribution. Atlas map segments between curated narrative journey stops are schematic stop-to-stop connections and are not represented as reconstructed ancient road or sailing tracks.
+
 ## Public-domain reference literature
 
 Bible Engine's reference installer uses public-domain transcriptions/translations from sources such as Christian Classics Ethereal Library (CCEL) and Internet Sacred Text Archive. Individual work metadata is stored in the database and displayed in the Library drawer. Reference texts are never labelled as canonical Scripture.
