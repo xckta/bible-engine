@@ -10,6 +10,7 @@ function Write-Log([string]$Text) {
 }
 
 function Fail([string]$Message) {
+    if ([string]::IsNullOrWhiteSpace($Message)) { $Message = 'Unknown startup error. See the startup log.' }
     Write-Host ''
     Write-Host '========================================' -ForegroundColor Red
     Write-Host '         BIBLE ENGINE FAILED' -ForegroundColor Red
@@ -145,10 +146,19 @@ try {
     Add-Content -Path $Log -Value 'Starting Uvicorn on http://127.0.0.1:8000'
 
     Start-Process -FilePath (Join-Path $Root '.venv\Scripts\pythonw.exe') -ArgumentList 'scripts\open_browser.py' -WorkingDirectory $Root | Out-Null
-    & $venvPython -m uvicorn app.main:app --host 127.0.0.1 --port 8000 2>&1 | Tee-Object -FilePath $Log -Append
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "Bible Engine server exited with code $LASTEXITCODE."
+    # Uvicorn writes normal INFO startup messages to stderr. Do not merge stderr into
+    # PowerShell's error stream here or ErrorActionPreference=Stop can mistake a healthy
+    # server startup for an exception. Let the native process own the console directly.
+    $oldErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & $venvPython -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+    $serverExitCode = $LASTEXITCODE
+    $ErrorActionPreference = $oldErrorActionPreference
+
+    Add-Content -Path $Log -Value ("Uvicorn exited with code $serverExitCode at " + (Get-Date).ToString('s'))
+    if ($serverExitCode -ne 0) {
+        throw "Bible Engine server exited with code $serverExitCode."
     }
 }
 catch {
