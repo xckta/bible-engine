@@ -20,14 +20,13 @@ def _creationflags() -> int:
 @dataclass(frozen=True)
 class CodexStatus:
     installed: bool
-    authenticated: bool
-    chatgpt_auth: bool
+    runnable: bool
     version: str = ""
-    auth_detail: str = ""
+    detail: str = ""
 
     @property
     def ready(self) -> bool:
-        return self.installed and self.authenticated and self.chatgpt_auth
+        return self.installed and self.runnable
 
 
 @dataclass
@@ -40,39 +39,44 @@ class CodexClient:
     def _executable(self) -> str | None:
         return shutil.which(self.command)
 
+    def _command(self, exe: str, args: list[str]) -> list[str]:
+        if os.name == "nt" and Path(exe).suffix.lower() in {".cmd", ".bat"}:
+            comspec = os.environ.get("COMSPEC", "cmd.exe")
+            command_line = subprocess.list2cmdline([exe, *args])
+            return [comspec, "/d", "/s", "/c", command_line]
+        return [exe, *args]
+
+    def _run(self, exe: str, args: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(self._command(exe, args), **kwargs)
+
     def status(self) -> CodexStatus:
+        """Check only that Codex exists and launches.
+
+        Authentication is intentionally not probed here. Some Windows Codex installs can
+        stall on login-status checks. The real `codex exec` request is the authoritative
+        authentication test and will return a clear sign-in error if needed.
+        """
         exe = self._executable()
         if not exe:
-            return CodexStatus(False, False, False)
+            return CodexStatus(False, False, detail="Codex CLI was not found on PATH.")
 
         try:
-            version_run = subprocess.run(
-                [exe, "--version"],
+            version_run = self._run(
+                exe,
+                ["--version"],
                 capture_output=True,
                 text=True,
                 timeout=10,
                 creationflags=_creationflags(),
             )
             version = (version_run.stdout or version_run.stderr).strip()
-        except Exception:
-            version = ""
-
-        try:
-            auth_run = subprocess.run(
-                [exe, "login", "status"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                creationflags=_creationflags(),
-            )
-            auth_detail = "\n".join(
-                part.strip() for part in (auth_run.stdout, auth_run.stderr) if part and part.strip()
-            )
-            authenticated = auth_run.returncode == 0
-            chatgpt_auth = authenticated and "chatgpt" in auth_detail.lower()
-            return CodexStatus(True, authenticated, chatgpt_auth, version, auth_detail)
+            if version_run.returncode != 0:
+                return CodexStatus(True, False, version=version, detail="Codex --version returned a non-zero exit code.")
+            return CodexStatus(True, True, version=version)
+        except subprocess.TimeoutExpired:
+            return CodexStatus(True, False, detail="Codex --version timed out after 10 seconds.")
         except Exception as exc:
-            return CodexStatus(True, False, False, version, str(exc))
+            return CodexStatus(True, False, detail=str(exc))
 
     def healthy(self) -> bool:
         return self.status().ready
@@ -84,23 +88,13 @@ class CodexClient:
                 "Codex CLI is not installed or not on PATH. Install @openai/codex and sign in with ChatGPT."
             )
 
-        status = self.status()
-        if not status.authenticated:
-            raise ProviderError("Codex CLI is not signed in. Run `codex login` and sign in with ChatGPT.")
-        if not status.chatgpt_auth:
-            raise ProviderError(
-                "Bible Engine requires Codex ChatGPT authentication, not API-key auth. "
-                "Run `codex logout`, then `codex login`."
-            )
-
         with tempfile.TemporaryDirectory(prefix="bible-engine-codex-") as td:
             workdir = Path(td)
             schema_path = workdir / "answer.schema.json"
             output_path = workdir / "answer.json"
             schema_path.write_text(json.dumps(schema, ensure_ascii=False), encoding="utf-8")
 
-            cmd = [
-                exe,
+            args = [
                 "exec",
                 "-",
                 "--model",
@@ -126,8 +120,9 @@ class CodexClient:
             ]
 
             try:
-                run = subprocess.run(
-                    cmd,
+                run = self._run(
+                    exe,
+                    args,
                     input=prompt,
                     capture_output=True,
                     text=True,
@@ -145,6 +140,11 @@ class CodexClient:
             if run.returncode != 0:
                 detail = (run.stderr or run.stdout or "Codex exited without an error message.").strip()
                 detail = detail[-2000:]
+                lower = detail.lower()
+                if any(word in lower for word in ("login", "sign in", "signin", "unauthorized", "authentication", "401")):
+                    raise ProviderError(
+                        "Codex is not authenticated. Run `codex --login` once in a terminal, sign in with ChatGPT, then retry."
+                    )
                 raise ProviderError(f"Codex failed: {detail}")
             if not output_path.exists():
                 raise ProviderError("Codex completed without writing the required structured response.")
