@@ -54,13 +54,16 @@
   q('#olSearch')?.addEventListener('keydown',e=>{if(e.key==='Enter')search()});
 })();
 
-// Feature modules can be loaded independently without turning the main Oracle bundle
-// into one monolithic script. The graph module injects its own nav control/drawer.
+// Independent feature bundles keep the core Oracle script small and make failures
+// in an advanced instrument less likely to break normal consultation/search.
 (()=>{
-  if(!document.querySelector('link[data-bible-graph]')){
-    const l=document.createElement('link');l.rel='stylesheet';l.href='/graph.css';l.dataset.bibleGraph='1';document.head.appendChild(l);
-  }
-  if(!document.querySelector('script[data-bible-graph]')){
-    const s=document.createElement('script');s.src='/graph.js';s.defer=true;s.dataset.bibleGraph='1';document.body.appendChild(s);
+  const bundles=[['graph','/graph.css','/graph.js'],['research','/research.css','/research.js']];
+  for(const [name,css,js] of bundles){
+    if(!document.querySelector(`link[data-bible-${name}]`)){
+      const l=document.createElement('link');l.rel='stylesheet';l.href=css;l.dataset[`bible${name[0].toUpperCase()+name.slice(1)}`]='1';document.head.appendChild(l);
+    }
+    if(!document.querySelector(`script[data-bible-${name}]`)){
+      const s=document.createElement('script');s.src=js;s.defer=true;s.dataset[`bible${name[0].toUpperCase()+name.slice(1)}`]='1';document.body.appendChild(s);
+    }
   }
 })();
