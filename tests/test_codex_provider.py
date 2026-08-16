@@ -4,17 +4,12 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.providers import CodexClient, CodexStatus
+from app.providers import CodexClient
 
 
 def test_codex_exec_is_locked_to_requested_model_and_no_tools(monkeypatch):
     client = CodexClient("codex", "gpt-5.6-luna", "medium", timeout=30)
     monkeypatch.setattr("app.providers.shutil.which", lambda command: "/fake/codex")
-    monkeypatch.setattr(
-        client,
-        "status",
-        lambda: CodexStatus(True, True, True, "codex 1.0", "Logged in using ChatGPT"),
-    )
 
     captured = {}
 
@@ -46,17 +41,15 @@ def test_codex_exec_is_locked_to_requested_model_and_no_tools(monkeypatch):
     assert Path(captured["cwd"]).name.startswith("bible-engine-codex-")
 
 
-def test_status_requires_chatgpt_auth(monkeypatch):
+def test_status_only_checks_that_codex_launches(monkeypatch):
     client = CodexClient("codex", "gpt-5.6-luna", "medium")
     monkeypatch.setattr("app.providers.shutil.which", lambda command: "/fake/codex")
-
-    calls = iter([
-        SimpleNamespace(returncode=0, stdout="codex-cli 1.0", stderr=""),
-        SimpleNamespace(returncode=0, stdout="Logged in using API key", stderr=""),
-    ])
-    monkeypatch.setattr("app.providers.subprocess.run", lambda *a, **k: next(calls))
+    monkeypatch.setattr(
+        "app.providers.subprocess.run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout="codex-cli 1.0", stderr=""),
+    )
     status = client.status()
     assert status.installed is True
-    assert status.authenticated is True
-    assert status.chatgpt_auth is False
-    assert status.ready is False
+    assert status.runnable is True
+    assert status.ready is True
+    assert status.version == "codex-cli 1.0"
