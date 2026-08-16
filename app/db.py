@@ -108,7 +108,13 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 def init_db(path: Path) -> None:
-    with connect(path) as conn:
+    # sqlite3.Connection's context manager commits/rolls back but does NOT close
+    # the underlying file handle. That behavior is easy to miss on POSIX, where
+    # an open file may still be unlinked, but it leaks a lock on Windows and
+    # breaks TemporaryDirectory cleanup with WinError 32. Manage the handle
+    # explicitly here so every init path is cross-platform safe.
+    conn = connect(path)
+    try:
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS translations (
           id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
@@ -125,6 +131,9 @@ def init_db(path: Path) -> None:
         if "corpus_tier" not in _columns(conn, "verses"):
             conn.execute("ALTER TABLE verses ADD COLUMN corpus_tier TEXT NOT NULL DEFAULT 'canonical'")
         conn.executescript(SCHEMA)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 @contextmanager
