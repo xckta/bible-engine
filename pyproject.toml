@@ -4,13 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bible-engine"
-version = "0.6.0"
-description = "Closed-corpus Bible research oracle with persistent studies, original-language analysis, and an intertextual graph using ChatGPT-authenticated Codex."
+version = "1.0.0"
+description = "Local provenance-first biblical research operating system with Oracle synthesis, studies, original languages, intertext graph, textual witnesses, research tools, and custom corpus vault."
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
   "uvicorn[standard]>=0.30,<1",
   "pydantic>=2.9,<3",
+  "python-multipart>=0.0.9,<1",
+  "pypdf>=5,<7",
 ]
 
 [project.optional-dependencies]
