@@ -48,6 +48,11 @@ try{
     Step 'Installing Hebrew + Greek Original-Language Lab...' {& $venv 'scripts\seed_original_languages.py'}
     Step 'Verifying Original-Language Lab...' {& $venv 'scripts\check_original_languages.py'}
   }else{Write-Host 'Original-Language Lab ready.' -ForegroundColor DarkGreen}
+  & $venv 'scripts\check_intertext_graph.py' *> $null
+  if($LASTEXITCODE -ne 0){
+    Step 'Building Intertextual Graph...' {& $venv 'scripts\seed_intertext_graph.py'}
+    Step 'Verifying Intertextual Graph...' {& $venv 'scripts\check_intertext_graph.py'}
+  }else{Write-Host 'Intertextual Graph ready.' -ForegroundColor DarkGreen}
   Step 'Checking Oracle application...' {& $venv -c "import app.main; print('Application import OK')"}
   $listener=Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
   if($listener){throw 'Port 8000 is already in use. Close the older Bible Engine terminal first.'}
