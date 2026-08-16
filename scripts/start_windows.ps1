@@ -90,6 +90,10 @@ try{
   }
   Step 'Resolving native Codex executable...' {& $venv 'scripts\check_codex.py'}
 
+  # Catch stale imports, missing exported symbols, route loss, and the graph /
+  # textual-witness runtime contracts BEFORE any long corpus installation work.
+  Step 'Auditing Bible Engine runtime contracts...' {& $venv 'scripts\check_runtime_contracts.py'}
+
   $corpusProbe = Probe {& $venv 'scripts\check_corpus.py'}
   if($corpusProbe -ne 0){
     Step 'Downloading public-domain Bible sources...' {& $venv 'scripts\fetch_public_domain.py'}
