@@ -6,14 +6,29 @@ $Log = Join-Path $Root 'bible-engine-startup.log'
 Set-Content $Log @('Bible Engine startup log',('Started: '+(Get-Date).ToString('s')),('Folder: '+$Root))
 function Step([string]$Label,[scriptblock]$Action){
   Write-Host $Label -ForegroundColor DarkYellow; Add-Content $Log ('>>> '+$Label)
-  & $Action 2>&1 | Tee-Object -FilePath $Log -Append
-  if($LASTEXITCODE -ne 0){ throw "$Label failed with exit code $LASTEXITCODE." }
+  # Native programs legitimately write diagnostics/progress to stderr. Under
+  # ErrorActionPreference=Stop PowerShell can otherwise abort after the first
+  # stderr line and hide the actual Python traceback. Let the native process
+  # finish, preserve its complete output, then judge only its exit code.
+  $oldPreference=$ErrorActionPreference
+  $ErrorActionPreference='Continue'
+  try {
+    & $Action 2>&1 | Tee-Object -FilePath $Log -Append
+    $rc=$LASTEXITCODE
+  } finally {
+    $ErrorActionPreference=$oldPreference
+  }
+  if($rc -ne 0){ throw "$Label failed with exit code $rc." }
 }
 function Fail([string]$Message){
   Write-Host '';Write-Host '========================================' -ForegroundColor Red
   Write-Host '         BIBLE ENGINE FAILED' -ForegroundColor Red
   Write-Host '========================================' -ForegroundColor Red
   Write-Host $Message -ForegroundColor Red;Add-Content $Log ('ERROR: '+$Message)
+  if(Test-Path $Log){
+    Write-Host '';Write-Host 'Last startup log lines:' -ForegroundColor DarkYellow
+    Get-Content $Log -Tail 35 | ForEach-Object { Write-Host $_ -ForegroundColor DarkGray }
+  }
   Write-Host "Log: $Log";try{Start-Process notepad.exe -ArgumentList ('"'+$Log+'"')|Out-Null}catch{}
   Write-Host '';Write-Host 'This window will stay open.'
 }
