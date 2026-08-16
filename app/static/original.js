@@ -2,7 +2,7 @@
   const q=s=>document.querySelector(s), qa=s=>[...document.querySelectorAll(s)];
   const localState={status:null,currentWord:null};
   const html=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  function notify(msg){const t=q('#toast');if(!t)return; t.textContent=msg;t.classList.remove('hidden');setTimeout(()=>t.classList.add('hidden'),3600)}
+  function notify(msg){const t=q('#toast');if(!t)return;t.textContent=msg;t.classList.remove('hidden');setTimeout(()=>t.classList.add('hidden'),3600)}
   async function get(url){const r=await fetch(url);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(typeof d.detail==='string'?d.detail:(d.detail?.message||'Request failed'));return d}
   function openDrawer(){qa('.drawer').forEach(d=>{d.classList.remove('open');d.setAttribute('aria-hidden','true')});const d=q('#languageDrawer');d.classList.add('open');d.setAttribute('aria-hidden','false');q('#scrim').classList.remove('hidden');if(!localState.status)loadStatus()}
   function closeDrawer(){const d=q('#languageDrawer');d.classList.remove('open');d.setAttribute('aria-hidden','true');if(!qa('.drawer.open').length)q('#scrim').classList.add('hidden')}
@@ -45,6 +45,7 @@
 
   q('#languageBtn')?.addEventListener('click',openDrawer);
   q('[data-close="languageDrawer"]')?.addEventListener('click',closeDrawer);
+  ['#libraryBtn','#studyBtn','#settingsBtn'].forEach(sel=>q(sel)?.addEventListener('click',closeDrawer));
   q('#olOpenVerse')?.addEventListener('click',()=>openVerse());
   q('#olReference')?.addEventListener('keydown',e=>{if(e.key==='Enter')openVerse()});
   qa('[data-ol-ref]').forEach(b=>b.addEventListener('click',()=>openVerse(b.dataset.olRef)));
