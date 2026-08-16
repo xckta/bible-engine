@@ -24,7 +24,8 @@ def enhanced_research_js():
 
 @router.get('/research.css')
 def enhanced_research_css():
-    return Response((STATIC/'research.css').read_text(encoding='utf-8')+'\n\n/* Atlas Explorer v2 */\n'+(STATIC/'atlas.css').read_text(encoding='utf-8'),media_type='text/css')
+    css=(STATIC/'research.css').read_text(encoding='utf-8')+'\n\n/* Atlas Explorer v2 */\n'+(STATIC/'atlas.css').read_text(encoding='utf-8')+'\n'+(STATIC/'atlas-extra.css').read_text(encoding='utf-8')
+    return Response(css,media_type='text/css')
 
 @router.get('/atlas.js')
 def atlas_js():return Response((STATIC/'atlas.js').read_text(encoding='utf-8'),media_type='application/javascript')
@@ -54,33 +55,23 @@ def place_geometry(place_id:str):
     try:
         with session(settings.db_path) as c:p=get_place(c,place_id,1)
     except KeyError as exc:raise HTTPException(404,detail={'code':'atlas_place_not_found','message':'Atlas place not found.'}) from exc
-    if p.get('geometry'):
-        return p['geometry']
+    if p.get('geometry'):return p['geometry']
     rel=str(p.get('geometry_path') or '').strip()
-    if not rel:
-        raise HTTPException(404,detail={'code':'atlas_geometry_missing','message':'No source geometry is published for this place.'})
-    if not GEOMETRY_RE.fullmatch(rel):
-        raise HTTPException(502,detail={'code':'atlas_geometry_path_invalid','message':'The source geometry path is not in the expected OpenBible format.'})
-    cache=ROOT/'data'/'sources'/'atlas'/'geometry'/Path(rel).name
-    cache.parent.mkdir(parents=True,exist_ok=True)
+    if not rel:raise HTTPException(404,detail={'code':'atlas_geometry_missing','message':'No source geometry is published for this place.'})
+    if not GEOMETRY_RE.fullmatch(rel):raise HTTPException(502,detail={'code':'atlas_geometry_path_invalid','message':'The source geometry path is not in the expected OpenBible format.'})
+    cache=ROOT/'data'/'sources'/'atlas'/'geometry'/Path(rel).name;cache.parent.mkdir(parents=True,exist_ok=True)
     if not cache.is_file() or cache.stat().st_size<20:
-        url='https://raw.githubusercontent.com/openbibleinfo/Bible-Geocoding-Data/main/'+rel
-        req=urllib.request.Request(url,headers={'User-Agent':'BibleEngine-Atlas/1.1'})
+        url='https://raw.githubusercontent.com/openbibleinfo/Bible-Geocoding-Data/main/'+rel;req=urllib.request.Request(url,headers={'User-Agent':'BibleEngine-Atlas/1.1'})
         try:
-            with urllib.request.urlopen(req,timeout=45) as response:
-                raw=response.read(8_000_001)
-        except Exception as exc:
-            raise HTTPException(502,detail={'code':'atlas_geometry_download_failed','message':f'Source geometry could not be downloaded: {exc}'}) from exc
-        if len(raw)>8_000_000:
-            raise HTTPException(502,detail={'code':'atlas_geometry_too_large','message':'Source geometry exceeded the Atlas safety limit.'})
+            with urllib.request.urlopen(req,timeout=45) as response:raw=response.read(8_000_001)
+        except Exception as exc:raise HTTPException(502,detail={'code':'atlas_geometry_download_failed','message':f'Source geometry could not be downloaded: {exc}'}) from exc
+        if len(raw)>8_000_000:raise HTTPException(502,detail={'code':'atlas_geometry_too_large','message':'Source geometry exceeded the Atlas safety limit.'})
         try:payload=json.loads(raw.decode('utf-8-sig'))
         except Exception as exc:raise HTTPException(502,detail={'code':'atlas_geometry_invalid','message':'Source geometry was not valid GeoJSON.'}) from exc
-        if not isinstance(payload,dict) or payload.get('type') not in {'Feature','FeatureCollection','Point','MultiPoint','LineString','MultiLineString','Polygon','MultiPolygon','GeometryCollection'}:
-            raise HTTPException(502,detail={'code':'atlas_geometry_invalid','message':'Source geometry was not a supported GeoJSON object.'})
+        if not isinstance(payload,dict) or payload.get('type') not in {'Feature','FeatureCollection','Point','MultiPoint','LineString','MultiLineString','Polygon','MultiPolygon','GeometryCollection'}:raise HTTPException(502,detail={'code':'atlas_geometry_invalid','message':'Source geometry was not a supported GeoJSON object.'})
         tmp=cache.with_suffix('.tmp');tmp.write_text(json.dumps(payload,ensure_ascii=False,separators=(',',':')),encoding='utf-8');tmp.replace(cache)
     try:payload=json.loads(cache.read_text(encoding='utf-8'))
-    except Exception as exc:
-        cache.unlink(missing_ok=True);raise HTTPException(502,detail={'code':'atlas_geometry_cache_invalid','message':'Cached source geometry was invalid and has been discarded.'}) from exc
+    except Exception as exc:cache.unlink(missing_ok=True);raise HTTPException(502,detail={'code':'atlas_geometry_cache_invalid','message':'Cached source geometry was invalid and has been discarded.'}) from exc
     return payload
 
 @router.get('/api/atlas/explorer/nearby')
@@ -106,5 +97,4 @@ class AtlasDistanceRequest(BaseModel):
 
 @router.post('/api/atlas/explorer/distance')
 def distance(req:AtlasDistanceRequest):
-    km=distance_km(req.lat1,req.lon1,req.lat2,req.lon2)
-    return {'kilometers':round(km,2),'miles':round(km*0.621371,2),'notice':'Great-circle straight-line distance between the selected coordinates; not an ancient road, walking, or sailing distance.'}
+    km=distance_km(req.lat1,req.lon1,req.lat2,req.lon2);return {'kilometers':round(km,2),'miles':round(km*0.621371,2),'notice':'Great-circle straight-line distance between the selected coordinates; not an ancient road, walking, or sailing distance.'}
