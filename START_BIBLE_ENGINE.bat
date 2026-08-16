@@ -1,4 +1,10 @@
 @echo off
+if not defined BIBLE_ENGINE_KEEP_OPEN (
+  set "BIBLE_ENGINE_KEEP_OPEN=1"
+  cmd.exe /k call "%~f0"
+  exit /b
+)
+
 setlocal EnableExtensions
 cd /d "%~dp0"
 if errorlevel 1 goto :folder_fail
