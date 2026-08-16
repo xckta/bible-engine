@@ -53,3 +53,14 @@
   q('#olSearchBtn')?.addEventListener('click',search);
   q('#olSearch')?.addEventListener('keydown',e=>{if(e.key==='Enter')search()});
 })();
+
+// Feature modules can be loaded independently without turning the main Oracle bundle
+// into one monolithic script. The graph module injects its own nav control/drawer.
+(()=>{
+  if(!document.querySelector('link[data-bible-graph]')){
+    const l=document.createElement('link');l.rel='stylesheet';l.href='/graph.css';l.dataset.bibleGraph='1';document.head.appendChild(l);
+  }
+  if(!document.querySelector('script[data-bible-graph]')){
+    const s=document.createElement('script');s.src='/graph.js';s.defer=true;s.dataset.bibleGraph='1';document.body.appendChild(s);
+  }
+})();
