@@ -19,6 +19,18 @@ jobs:
         run: python scripts/check_runtime_contracts.py
       - name: Python tests
         run: python -m pytest
+      - name: First-run graph integration
+        env:
+          BIBLE_DB_PATH: /tmp/bible-engine-graph.db
+        run: |
+          python scripts/seed_intertext_graph.py
+          python scripts/check_intertext_graph.py
+      - name: First-run textual witness integration
+        env:
+          BIBLE_DB_PATH: /tmp/bible-engine-witnesses.db
+        run: |
+          python scripts/seed_textual_witnesses.py
+          python scripts/check_textual_witnesses.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
