@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#070706">
   <title>Bible Engine // Oracle</title>
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/original.css">
 </head>
 <body>
   <div class="grain"></div>
@@ -17,6 +18,7 @@
     </button>
     <div class="top-actions">
       <button class="ghost" id="studyBtn">STUDIES</button>
+      <button class="ghost" id="languageBtn">LANGUAGES</button>
       <button class="ghost" id="libraryBtn">LIBRARY</button>
       <button class="ghost" id="settingsBtn">SETTINGS</button>
       <span class="pulse-dot" id="statusDot"></span>
@@ -135,6 +137,46 @@
     </section>
   </aside>
 
+  <aside class="drawer language-drawer" id="languageDrawer" aria-hidden="true">
+    <div class="drawer-head"><div><p class="eyebrow">ORIGINAL-LANGUAGE LAB</p><h2>Hebrew + Greek</h2></div><button class="x" data-close="languageDrawer">×</button></div>
+    <p class="drawer-copy">Inspect the actual word stream beneath a canonical verse. Lemma and morphology are corpus data; interpretive conclusions remain separate.</p>
+
+    <div class="ol-status" id="olStatus"><span class="ol-orb"></span><div><b>Checking corpus…</b><small>UHB + UGNT</small></div></div>
+
+    <div class="ol-reference-box">
+      <label class="field-label" for="olReference">OPEN A VERSE</label>
+      <div class="ol-input-row"><input id="olReference" value="Jude 1:6" placeholder="Jude 1:6"><button class="consult" id="olOpenVerse">OPEN</button></div>
+      <div class="ol-quick"><button data-ol-ref="Genesis 6:1">GEN 6:1</button><button data-ol-ref="Deuteronomy 32:8">DEUT 32:8</button><button data-ol-ref="Psalm 82:1">PS 82:1</button><button data-ol-ref="Jude 1:6">JUDE 6</button></div>
+    </div>
+
+    <section class="ol-verse hidden" id="olVersePanel">
+      <div class="section-head"><div><span class="study-kicker">WORD STREAM</span><h3 id="olVerseTitle">Jude 1:6</h3></div><span id="olVerseSource"></span></div>
+      <div class="ol-word-stream" id="olWords"></div>
+      <p class="ol-hint">Click any word to inspect lemma, morphology, transliteration, Strong’s tag, and corpus-wide occurrences.</p>
+    </section>
+
+    <section class="ol-inspector hidden" id="olInspector">
+      <div class="ol-word-head"><div><span id="olLanguageBadge">GREEK</span><div class="ol-surface" id="olSurface">λόγος</div><div class="ol-translit" id="olTranslit">logos</div></div><button class="ghost compact" id="olFindLemma">ALL OCCURRENCES</button></div>
+      <div class="ol-grid">
+        <div><span>LEMMA</span><b id="olLemma"></b></div>
+        <div><span>STRONG'S</span><b id="olStrongs"></b></div>
+        <div class="span-2"><span>MORPHOLOGY</span><b id="olMorph"></b><small id="olMorphRaw"></small></div>
+      </div>
+    </section>
+
+    <div class="ol-search-box">
+      <label class="field-label" for="olSearch">SEARCH FORM / LEMMA / TRANSLITERATION</label>
+      <div class="ol-input-row"><input id="olSearch" placeholder="θεός, אלהים, logos…"><button class="ghost" id="olSearchBtn">SEARCH</button></div>
+    </div>
+
+    <section class="ol-results hidden" id="olResultsPanel">
+      <div class="section-head"><h4 id="olResultsTitle">Occurrences</h4><span id="olResultsCount"></span></div>
+      <div id="olResults"></div>
+    </section>
+
+    <div class="ol-provenance" id="olProvenance"></div>
+  </aside>
+
   <div class="scrim hidden" id="scrim"></div>
 
   <dialog id="settingsDialog">
@@ -189,5 +231,6 @@
 
   <div class="toast hidden" id="toast"></div>
   <script src="/app.js"></script>
+  <script src="/original.js"></script>
 </body>
 </html>
