@@ -9,7 +9,7 @@ from .providers import CodexClient, ProviderError
 from .retrieval import Evidence
 
 Classification = Literal["explicit", "strong_inference", "possible_inference", "not_established"]
-Authority = Literal["canonical", "deuterocanon", "reference", "mixed"]
+Authority = Literal["canonical", "deuterocanon", "reference", "supplemental", "mixed"]
 
 
 class Claim(BaseModel):
@@ -47,19 +47,20 @@ SCHEMA = _strict_output_schema(ModelAnswer.model_json_schema())
 
 SYSTEM = """BIBLE ENGINE // CLOSED-CORPUS RESEARCH PROTOCOL
 
-You are the synthesis layer for a Bible research instrument. The prompt supplies three explicitly separated evidence tiers.
+You are the synthesis layer for a Bible research instrument. The prompt may supply four explicitly separated evidence tiers.
 
 AUTHORITY RULES
 A. CANONICAL SCRIPTURE: 66-book Protestant canon, displayed in ESV. This is the highest evidentiary tier.
 B. DEUTEROCANON/APOCRYPHA: separately labelled historical/religious texts whose canonical status varies by Christian tradition.
 C. REFERENCE LITERATURE: Second Temple / pseudepigraphal / related ancient literature. It may illuminate concepts, vocabulary, traditions, and intertextual background, but it is never to be called canonical Scripture.
+D. SUPPLEMENTAL USER CORPUS: material the user imported into the Vault, such as scholarship, lexicons, ancient-source editions, or personal notes. It may be cited only as supplemental evidence and can never establish what canonical Scripture itself says.
 
 HARD CONSTRAINTS
 1. Use ONLY the supplied EVIDENCE as evidence. No web, commentary, memory, original-language knowledge, chronology, authorship claims, or theological facts unless explicitly present in EVIDENCE.
 2. Every substantive claim must cite one or more supplied evidence IDs.
 3. Never invent evidence IDs or citations.
 4. A claim labelled authority=canonical must be supported exclusively by CANONICAL evidence IDs.
-5. Do not use deuterocanon/reference evidence to prove that canonical Scripture says something it does not say. Instead say the reference text parallels, develops, reflects, or contextualizes the idea when the supplied evidence supports that wording.
+5. Do not use deuterocanon/reference/supplemental evidence to prove that canonical Scripture says something it does not say. Instead describe parallels, developments, interpretations, or contextual claims only when the supplied evidence supports that wording.
 6. When evidence tiers differ, name the distinction explicitly.
 7. Classify each claim: explicit, strong_inference, possible_inference, or not_established.
 8. If the evidence does not establish a conclusion, say so and set insufficient_evidence=true.
@@ -81,7 +82,12 @@ class AnswerResult:
 
 
 def _tier_label(e: Evidence) -> str:
-    return {"canonical": "CANONICAL", "deuterocanon": "DEUTEROCANON", "pseudepigrapha": "REFERENCE"}.get(e.tier, e.tier.upper())
+    return {
+        "canonical": "CANONICAL",
+        "deuterocanon": "DEUTEROCANON",
+        "pseudepigrapha": "REFERENCE",
+        "vault": "SUPPLEMENTAL",
+    }.get(e.tier, e.tier.upper())
 
 
 def evidence_payload(evidence: list[Evidence]) -> tuple[str, dict[str, Evidence]]:
@@ -107,6 +113,8 @@ def validate_answer(answer: ModelAnswer, evidence: dict[str, Evidence]) -> list[
             errors.append(f"claim {i} has mismatched deuterocanon authority")
         if claim.authority == "reference" and tiers and not tiers <= {"pseudepigrapha"}:
             errors.append(f"claim {i} has mismatched reference authority")
+        if claim.authority == "supplemental" and tiers and not tiers <= {"vault"}:
+            errors.append(f"claim {i} has mismatched supplemental authority")
     return errors
 
 
