@@ -2,7 +2,7 @@ from pathlib import Path
 
 from app.asset_routes import ASSET_VERSION, build_identity, versioned_root
 from app.main import app
-from app.research_pro_routes import _shared_terms, _vault_evidence
+from app.research_pro_routes import _reference_work_name, _shared_terms, _vault_evidence
 
 
 def test_professional_research_routes_are_registered():
@@ -17,6 +17,14 @@ def test_professional_research_routes_are_registered():
         '/api/research-pro/vault/{source_id}',
     }
     assert required <= paths
+
+
+def test_cache_proof_root_is_the_first_runtime_match():
+    root_routes=[r for r in app.routes if getattr(r,'path',None)=='/' and 'GET' in getattr(r,'methods',set())]
+    assert root_routes
+    assert root_routes[0].endpoint.__module__=='app.asset_routes'
+    research_routes=[r for r in app.routes if getattr(r,'path',None)=='/research.js' and 'GET' in getattr(r,'methods',set())]
+    assert research_routes[0].endpoint.__module__=='app.asset_routes'
 
 
 def test_root_is_cache_proof_and_versions_core_assets():
@@ -46,6 +54,11 @@ def test_shared_term_analysis_is_explicit_not_magic_similarity():
     assert {'judgment','prison'} <= terms
     prison=next(r for r in rows if r['term']=='prison')
     assert prison['left_count']==2 and prison['right_count']==1
+
+
+def test_reference_work_names_are_not_truncated():
+    assert _reference_work_name('1 Enoch 6:1','fallback')=='1 Enoch'
+    assert _reference_work_name('Assumption of Moses 10','fallback')=='Assumption of Moses'
 
 
 def test_vault_rows_become_supplemental_evidence():
