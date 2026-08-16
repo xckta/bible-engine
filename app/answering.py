@@ -28,12 +28,6 @@ class ModelAnswer(BaseModel):
 
 
 def _strict_output_schema(schema: dict) -> dict:
-    """Normalize Pydantic JSON Schema to Codex/OpenAI Structured Outputs rules.
-
-    Structured Outputs requires every property of every object to appear in
-    ``required``. Defaults are therefore represented by explicit values from the
-    model rather than optional schema fields.
-    """
     def walk(node):
         if isinstance(node, dict):
             out = {k: walk(v) for k, v in node.items() if k != "default"}
@@ -61,7 +55,7 @@ B. DEUTEROCANON/APOCRYPHA: separately labelled historical/religious texts whose 
 C. REFERENCE LITERATURE: Second Temple / pseudepigraphal / related ancient literature. It may illuminate concepts, vocabulary, traditions, and intertextual background, but it is never to be called canonical Scripture.
 
 HARD CONSTRAINTS
-1. Use ONLY the supplied EVIDENCE. No web, commentary, memory, original-language knowledge, chronology, authorship claims, or theological facts unless explicitly present in EVIDENCE.
+1. Use ONLY the supplied EVIDENCE as evidence. No web, commentary, memory, original-language knowledge, chronology, authorship claims, or theological facts unless explicitly present in EVIDENCE.
 2. Every substantive claim must cite one or more supplied evidence IDs.
 3. Never invent evidence IDs or citations.
 4. A claim labelled authority=canonical must be supported exclusively by CANONICAL evidence IDs.
@@ -71,7 +65,8 @@ HARD CONSTRAINTS
 8. If the evidence does not establish a conclusion, say so and set insufficient_evidence=true.
 9. Keep direct quotation modest; the UI separately displays the exact evidence text and citation.
 10. The answer field should be a concise integrated synthesis, not a sermon and not a list of uncited outside facts.
-11. Return ONLY the JSON object required by the output schema.
+11. PROJECT CONTEXT, when supplied, is continuity/navigation only. It is NOT evidence, cannot support a claim, and must never be cited as though it were Scripture or an ancient source. Fresh EVIDENCE IDs remain mandatory.
+12. Return ONLY the JSON object required by the output schema.
 """
 
 
@@ -91,9 +86,7 @@ def _tier_label(e: Evidence) -> str:
 
 def evidence_payload(evidence: list[Evidence]) -> tuple[str, dict[str, Evidence]]:
     mapping = {f"E{i + 1}": e for i, e in enumerate(evidence)}
-    lines = []
-    for eid, e in mapping.items():
-        lines.append(f"{eid} | {_tier_label(e)} | {e.citation} | {e.text}")
+    lines = [f"{eid} | {_tier_label(e)} | {e.citation} | {e.text}" for eid, e in mapping.items()]
     return "\n".join(lines), mapping
 
 
@@ -128,7 +121,12 @@ def _render_claim(claim: Claim, mapping: dict[str, Evidence]) -> dict:
     }
 
 
-def answer_question(question: str, evidence: list[Evidence], codex: CodexClient) -> AnswerResult:
+def answer_question(
+    question: str,
+    evidence: list[Evidence],
+    codex: CodexClient,
+    project_context: str = "",
+) -> AnswerResult:
     evidence_rows = []
     payload, mapping = evidence_payload(evidence)
     for eid, e in mapping.items():
@@ -152,7 +150,14 @@ def answer_question(question: str, evidence: list[Evidence], codex: CodexClient)
     if not status.ready:
         raise ProviderError(status.detail or "Codex CLI is required and could not be started.")
 
-    prompt = f"{SYSTEM}\n\nUSER QUESTION:\n{question}\n\nEVIDENCE:\n{payload}\n"
+    context_block = ""
+    if project_context.strip():
+        context_block = (
+            "\n\nPROJECT CONTEXT — NON-EVIDENTIARY CONTINUITY ONLY:\n"
+            + project_context.strip()
+            + "\n\nEND PROJECT CONTEXT\n"
+        )
+    prompt = f"{SYSTEM}{context_block}\n\nUSER QUESTION:\n{question}\n\nEVIDENCE:\n{payload}\n"
     try:
         raw = codex.chat_json(prompt, SCHEMA)
         parsed = ModelAnswer.model_validate(raw)
