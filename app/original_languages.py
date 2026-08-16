@@ -44,7 +44,6 @@ def transliterate(text: str, language: str) -> str:
 
 
 def decode_greek_morph(code: str) -> str:
-    # unfoldingWord morphology example: Gr,V,IAA3,,S or Gr,N,,,,,NMS,
     bits = [x.strip() for x in code.split(",")]
     if not bits or not code.startswith("Gr"):
         return code
@@ -72,7 +71,6 @@ def decode_greek_morph(code: str) -> str:
 
 
 def decode_hebrew_morph(code: str) -> str:
-    # Keep the raw code visible but decode the high-value POS prefix safely.
     if not code.startswith("He") and not code.startswith("Ar"):
         return code
     body = code.split(",", 1)[1] if "," in code else code[2:].lstrip("/")
@@ -87,14 +85,6 @@ def decode_hebrew_morph(code: str) -> str:
 
 def morph_description(code: str, language: str) -> str:
     return decode_greek_morph(code) if language == "greek" else decode_hebrew_morph(code)
-
-
-def language_for_book(book: str) -> str:
-    return "greek" if book in {
-        "Matthew","Mark","Luke","John","Acts","Romans","1 Corinthians","2 Corinthians","Galatians","Ephesians",
-        "Philippians","Colossians","1 Thessalonians","2 Thessalonians","1 Timothy","2 Timothy","Titus","Philemon",
-        "Hebrews","James","1 Peter","2 Peter","1 John","2 John","3 John","Jude","Revelation",
-    } else "hebrew"
 
 
 def verse_words(conn: sqlite3.Connection, book: str, chapter: int, verse: int) -> list[dict]:
@@ -135,12 +125,12 @@ def search_words(conn: sqlite3.Connection, query: str, language: str | None = No
     bare = strip_marks(q)
     like = f"%{q}%"; bare_like = f"%{bare}%"
     clause = " AND language=?" if language else ""
-    params: list[object] = [like, like, bare_like, bare_like]
+    params: list[object] = [like, like, bare_like, bare_like, like]
     if language:
         params.append(language)
     rows = conn.execute(
         "SELECT id,language,source,book,chapter,verse,position,surface,normalized,lemma,strongs,morph,transliteration "
-        "FROM original_words WHERE (surface LIKE ? OR lemma LIKE ? OR normalized LIKE ? OR transliteration LIKE ?)" + clause +
+        "FROM original_words WHERE (surface LIKE ? OR lemma LIKE ? OR normalized LIKE ? OR transliteration LIKE ? OR strongs LIKE ?)" + clause +
         " ORDER BY book_order,chapter,verse,position LIMIT ?",
         params + [limit],
     ).fetchall()
@@ -161,10 +151,11 @@ _ALIGN_RE = re.compile(r'\\zaln-s\s*\|([^\\]*?)\\\*')
 
 
 def parse_original_usfm(text: str, *, book: str, book_order: int, language: str, source: str) -> list[dict]:
-    """Parse original-language USFM3 word/alignment attributes into normalized rows.
+    """Parse unfoldingWord original-language USFM3 into word-level rows.
 
-    Supports both direct ``\\w`` word fields and unfoldingWord ``\\zaln-s`` milestones.
-    Duplicate alignment/word representations are removed by verse position + content.
+    Both direct ``\\w`` fields and ``\\zaln-s`` milestones are accepted so the
+    importer remains compatible with tokenized source and aligned representations.
+    Aramaic words embedded in UHB are identified from ``Ar`` morphology codes.
     """
     chapter = 0
     verse = 0
@@ -197,12 +188,13 @@ def parse_original_usfm(text: str, *, book: str, book_order: int, language: str,
             if key in seen:
                 continue
             seen.add(key)
+            word_language = "aramaic" if language != "greek" and morph.startswith("Ar") else language
             pv = (chapter, verse); positions[pv] = positions.get(pv, 0) + 1
             normalized = strip_marks(surface).lower()
             out.append({
-                "language": language, "source": source, "book": book, "book_order": book_order,
+                "language": word_language, "source": source, "book": book, "book_order": book_order,
                 "chapter": chapter, "verse": verse, "position": positions[pv], "surface": surface,
                 "normalized": normalized, "lemma": lemma, "strongs": strongs, "morph": morph,
-                "transliteration": transliterate(surface, language),
+                "transliteration": transliterate(surface, word_language),
             })
     return out
