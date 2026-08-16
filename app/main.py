@@ -16,6 +16,7 @@ from .intertext_graph import EDGE_TYPES, graph_for, graph_stats
 from .local_settings import esv_key, masked_key, preferences, save_preferences, save_settings
 from .original_languages import lab_stats, lemma_occurrences, search_words, verse_words
 from .providers import CodexClient, ProviderError
+from .research_routes import router as research_router
 from .retrieval import hydrate_canonical_esv, retrieve
 from .studies import (
     add_item,
@@ -31,7 +32,8 @@ from .studies import (
     update_project,
 )
 
-app = FastAPI(title="Bible Engine // Oracle", version="0.6.0")
+app = FastAPI(title="Bible Engine // Oracle", version="1.0.0")
+app.include_router(research_router)
 
 
 class AskRequest(BaseModel):
@@ -137,7 +139,7 @@ def health():
         graph = graph_stats(conn)
     return {
         "status": "ok" if status.ready else "provider_required",
-        "version": "0.6.0",
+        "version": "1.0.0",
         "database": str(settings.db_path),
         "model": settings.codex_model,
         "reasoning_effort": prefs["reasoning_effort"],
