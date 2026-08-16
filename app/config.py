@@ -5,22 +5,25 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-def _bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
+_ALLOWED_REASONING = {"minimal", "low", "medium", "high", "xhigh"}
 
 
 @dataclass(frozen=True)
 class Settings:
     db_path: Path = Path(os.getenv("BIBLE_DB_PATH", "data/bible.db"))
-    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-    ollama_chat_model: str = os.getenv("OLLAMA_CHAT_MODEL", "gemma3:4b")
-    ollama_embed_model: str = os.getenv("OLLAMA_EMBED_MODEL", "embeddinggemma")
-    use_ollama: bool = _bool("BIBLE_USE_OLLAMA", True)
+    codex_command: str = os.getenv("BIBLE_CODEX_COMMAND", "codex")
+    codex_model: str = os.getenv("BIBLE_CODEX_MODEL", "gpt-5.6-luna")
+    codex_reasoning_effort: str = os.getenv("BIBLE_CODEX_REASONING_EFFORT", "medium").lower()
+    codex_timeout: float = float(os.getenv("BIBLE_CODEX_TIMEOUT", "180"))
     top_k: int = int(os.getenv("BIBLE_TOP_K", "12"))
     context_radius: int = int(os.getenv("BIBLE_CONTEXT_RADIUS", "1"))
+
+    def __post_init__(self) -> None:
+        if self.codex_reasoning_effort not in _ALLOWED_REASONING:
+            raise ValueError(
+                "BIBLE_CODEX_REASONING_EFFORT must be one of: "
+                + ", ".join(sorted(_ALLOWED_REASONING))
+            )
 
 
 settings = Settings()

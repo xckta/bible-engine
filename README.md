@@ -1,95 +1,131 @@
-# Bible Only Engine
+# Bible Engine
 
-A local-first, closed-corpus Bible research application. It is deliberately **not** a Bible-fine-tuned LLM. Scripture lives in an inspectable SQLite database; retrieval selects evidence; an optional local Ollama model can synthesize an answer only through a citation-bearing JSON contract.
+A closed-corpus Bible research application that uses the **Codex CLI authenticated with your ChatGPT account** for synthesis. The Bible text remains in an inspectable local SQLite database. Codex receives only the Scripture passages retrieved for the current question and must return citation-bearing structured claims.
 
-## Core guarantees
+## Current architecture
 
-- Bible text is stored as verse-addressable rows in SQLite.
-- Exact references (`Jude 1:6`, `2 Peter 2:4-7`) bypass fuzzy search.
-- SQLite FTS5 provides lexical retrieval.
-- Semantic retrieval can use Ollama embeddings, stored locally in SQLite.
-- If Ollama is unavailable, the app returns retrieved Scripture only.
-- Evidence-only mode can disable model synthesis even when Ollama is available.
-- Generated claims must cite supplied evidence IDs; unknown or missing citations cause the generated answer to be rejected.
-- The model is instructed to distinguish explicit statements from inference and to say when the loaded corpus does not establish a claim.
-- No web search, commentary database, or external retrieval is built into the application.
+```text
+WEB + ASV Bible corpus (local SQLite)
+        ↓
+Exact reference + lexical retrieval
+        ↓
+Retrieved Scripture evidence only
+        ↓
+Codex CLI using your saved ChatGPT login
+GPT-5.6 Luna · medium reasoning
+        ↓
+Schema + evidence-ID validation
+        ↓
+Answer with verse citations
+```
 
-> Important limitation: no prompt can erase a pretrained model's internal knowledge. The enforcement here is architectural: only approved corpus passages are supplied as evidence, every displayed generated claim must cite retrieved evidence, and malformed/uncited model output is suppressed. This materially reduces unsupported answers but is not a formal proof that a model never used prior knowledge while phrasing a cited claim.
+There is **no Ollama provider and no generation fallback**. If Codex is missing, not authenticated through ChatGPT, unavailable, or fails, Bible Engine returns an error instead of silently switching to another model.
 
-## Included corpus
+## One-click Windows start
 
-The repository includes **small demo excerpts** from two public-domain English translations so tests and the UI run offline:
+Double-click:
 
-- WEB — World English Bible Classic
-- ASV — American Standard Version (1901)
+```text
+START_BIBLE_ENGINE.bat
+```
 
-The full public-domain texts are intentionally fetched from eBible.org during setup rather than duplicated in this repository. Run the commands below to install the complete translations. The current canonical book map imports the standard 66-book Protestant canon and ignores deuterocanonical books present in some WEB distributions.
+The launcher will:
 
-## Quick start
+1. create/update the Python environment;
+2. install Codex CLI with npm if Codex is not already installed;
+3. check `codex login status`;
+4. launch the official `codex login` ChatGPT OAuth flow if needed;
+5. download and import the complete public-domain WEB + ASV translations if they are not already loaded;
+6. start the local Bible Engine web app and open it in your browser.
 
-### Windows PowerShell
+The app runs at `http://127.0.0.1:8000`.
 
-```powershell
-cd bible-only-engine
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
+### Prerequisites
+
+- Windows with Python 3.11+
+- Internet access for first-run Bible downloads and Codex model calls
+- Node.js/npm only if Codex CLI is not already installed
+- A ChatGPT account with Codex access
+
+Bible Engine **does not read, copy, or store your Codex OAuth tokens**. It launches the installed `codex` executable, which reuses the authentication already managed by Codex itself.
+
+## Required Codex configuration
+
+Defaults are hard-coded at the application layer and can be overridden only through Bible Engine environment variables:
+
+```text
+BIBLE_CODEX_MODEL=gpt-5.6-luna
+BIBLE_CODEX_REASONING_EFFORT=medium
+```
+
+Each answer invokes `codex exec` with:
+
+- `gpt-5.6-luna`
+- `medium` reasoning effort
+- ephemeral session storage
+- read-only sandbox
+- user/project Codex config ignored
+- user/project exec rules ignored
+- web search disabled
+- shell tool disabled
+- subagents disabled
+- a JSON output schema
+
+The subprocess runs in a fresh temporary empty directory. This prevents the Bible-answering run from using repository files, local notes, MCP configuration, web search, or shell commands as alternate evidence sources. Codex authentication remains available because authentication is separate from the ignored user config.
+
+## Closed-corpus guarantee and limitation
+
+Bible Engine enforces provenance architecturally:
+
+- the Bible corpus is the only evidence retrieved by the application;
+- each generated supported claim must cite one or more evidence IDs supplied in that request;
+- unknown evidence IDs are rejected;
+- uncited supported claims are rejected;
+- malformed structured output is rejected;
+- Codex web search and shell tools are disabled for the run.
+
+A pretrained model still has internal knowledge. No prompt can erase that training. Bible Engine therefore constrains what may count as evidence and suppresses responses that violate the evidence/citation contract; this is stronger than merely prompting a generic chatbot to "use only the Bible," but it is not a mathematical proof that pretrained knowledge never influences wording.
+
+## Included / installed corpus
+
+The project uses two public-domain English translations:
+
+- **WEB — World English Bible Classic**
+- **ASV — American Standard Version (1901)**
+
+The small demo excerpts in `data/demo/` exist only for automated tests. The normal Windows launcher requires the **complete** WEB + ASV corpora and downloads/imports them on first run.
+
+The canonical importer keeps the standard 66-book Protestant canon and ignores deuterocanonical books present in some source distributions.
+
+## Manual setup
+
+If you do not use the Windows launcher:
+
+```bash
+python -m venv .venv
+# activate the venv
 pip install -e ".[dev]"
-python scripts\seed_demo.py
-uvicorn app.main:app --reload
-```
-
-Open `http://127.0.0.1:8000`.
-
-### macOS / Linux
-
-```bash
-cd bible-only-engine
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-python scripts/seed_demo.py
-uvicorn app.main:app --reload
-```
-
-## Load the complete WEB + ASV corpora
-
-With internet access:
-
-```bash
 python scripts/fetch_public_domain.py
 python scripts/seed_public_domain.py
+codex login
+uvicorn app.main:app --reload
 ```
 
-Then optionally build embeddings:
+## Optional similarity index
+
+Normal operation uses exact-reference and SQLite FTS5 lexical retrieval. An optional deterministic local similarity index can be built without another AI provider:
 
 ```bash
-# fully offline deterministic sparse-ish hash embeddings
-python scripts/build_embeddings.py --provider hash
-
-# OR, after installing/running Ollama and pulling an embedding model
-python scripts/build_embeddings.py --provider ollama
+python scripts/build_embeddings.py
 ```
 
-The default database is `data/bible.db`.
-
-## Ollama
-
-The application talks to the local Ollama HTTP API at `http://localhost:11434` by default.
-
-Example model setup:
-
-```bash
-ollama pull gemma3:4b
-ollama pull embeddinggemma
-```
-
-Copy `.env.example` values into your shell/environment if you want different model names. The app does not require Ollama to start; without it, answers are extractive retrieval results only.
+It uses local hash vectors only. Codex remains the sole language-model provider.
 
 ## Import another translation
 
 Only load text you are legally permitted to store/use.
 
-### JSON format
+### JSON
 
 ```json
 {
@@ -98,8 +134,6 @@ Only load text you are legally permitted to store/use.
   ]
 }
 ```
-
-Import:
 
 ```bash
 python scripts/import_corpus.py \
@@ -116,10 +150,8 @@ Point `--input` to a directory containing `.usfm` or `.sfm` files.
 ## API
 
 ### `GET /api/health`
-Returns corpus counts and whether local Ollama is reachable.
 
-### `GET /api/translations`
-Lists loaded translations.
+Reports corpus counts plus Codex installation, ChatGPT-auth status, model, and reasoning effort.
 
 ### `POST /api/ask`
 
@@ -129,18 +161,17 @@ Lists loaded translations.
   "translations": ["WEB", "ASV"],
   "top_k": 12,
   "context_radius": 1,
-  "semantic": true,
-  "generate": true
+  "semantic": false
 }
 ```
 
-Response modes:
+Successful generation mode is:
 
-- `ollama_closed_corpus` — validated generated response
-- `evidence_only` — model synthesis deliberately disabled
-- `extractive_fallback` — Ollama unavailable; Scripture evidence only
-- `rejected_model_output` — model violated JSON/citation contract
-- `no_evidence` — retrieval found nothing useful
+```text
+codex_closed_corpus
+```
+
+If no relevant Scripture is retrieved, the result is `no_evidence`. Provider failures are HTTP errors; there is no alternate-model fallback.
 
 ## Tests
 
@@ -148,15 +179,4 @@ Response modes:
 pytest
 ```
 
-The test suite covers reference parsing, exact and lexical retrieval, USFM ingestion, citation rejection, and extractive fallback.
-
-## Suggested next layers
-
-Keep future evidence classes physically separate rather than mixing them into the Scripture database:
-
-1. Scripture translations
-2. Hebrew/Aramaic/Greek + morphology
-3. Second Temple / ANE historical corpora
-4. Commentary or scholarship
-
-A future UI can then allow explicit evidence-tier selection while preserving provenance.
+The tests cover reference parsing, exact and lexical retrieval, USFM ingestion, Codex provider isolation/flags, citation validation, invalid-output rejection, and required-provider behavior.
