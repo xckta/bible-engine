@@ -7,12 +7,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.books import BOOKS
+from app.books import CANONICAL_BOOKS
 from app.config import settings
 from app.db import init_db, session
 from app.intertext_graph import add_edge, ensure_graph_schema, extract_usfm_crossrefs, graph_stats
 
-BOOK_ORDER = {b: i + 1 for i, b in enumerate(BOOKS)}
+BOOK_ORDER = {b: i + 1 for i, b in enumerate(CANONICAL_BOOKS)}
 USFM_CODES = {
     "GEN":"Genesis","EXO":"Exodus","LEV":"Leviticus","NUM":"Numbers","DEU":"Deuteronomy","JOS":"Joshua","JDG":"Judges","RUT":"Ruth",
     "1SA":"1 Samuel","2SA":"2 Samuel","1KI":"1 Kings","2KI":"2 Kings","1CH":"1 Chronicles","2CH":"2 Chronicles","EZR":"Ezra","NEH":"Nehemiah",
@@ -46,7 +46,7 @@ CURATED = [
     ("Daniel 7:13–14", "1 Enoch 46:1–6", "ancient_context", 0.68,
      "The Enochic Son of Man material is useful comparative Second Temple context for Daniel 7 imagery.",
      "Bible Engine curated Second Temple context"),
-    ("Deuteronomy 32:8", "Psalm 82:1", "thematic_parallel", 0.62,
+    ("Deuteronomy 32:8", "Psalms 82:1", "thematic_parallel", 0.62,
      "Both passages participate in canonical language concerning divine/heavenly beings and the nations; this edge is thematic rather than a quotation claim.",
      "Bible Engine curated thematic parallel"),
 ]
@@ -83,20 +83,33 @@ def seed_web_crossrefs(conn) -> int:
     return count
 
 
+def seed_curated(conn) -> int:
+    count = 0
+    for source, target, typ, strength, rationale, provenance in CURATED:
+        count += add_edge(
+            conn, source, target, typ, strength=strength, rationale=rationale,
+            provenance=provenance, provenance_class="curated",
+        )
+    return count
+
+
+def build_graph(conn, *, include_source_crossrefs: bool = True) -> dict:
+    ensure_graph_schema(conn)
+    conn.execute("DELETE FROM intertext_edges WHERE provenance_class IN ('source_cross_reference','curated')")
+    xref_count = seed_web_crossrefs(conn) if include_source_crossrefs else 0
+    curated_count = seed_curated(conn)
+    stats = graph_stats(conn)
+    return {**stats, "source_crossrefs": xref_count, "curated": curated_count}
+
+
 def main() -> int:
     init_db(settings.db_path)
     with session(settings.db_path) as conn:
-        ensure_graph_schema(conn)
-        conn.execute("DELETE FROM intertext_edges WHERE provenance_class IN ('source_cross_reference','curated')")
-        xref_count = seed_web_crossrefs(conn)
-        curated_count = 0
-        for source, target, typ, strength, rationale, provenance in CURATED:
-            curated_count += add_edge(
-                conn, source, target, typ, strength=strength, rationale=rationale,
-                provenance=provenance, provenance_class="curated",
-            )
-        stats = graph_stats(conn)
-    print(f"Intertext graph ready: {stats['edge_count']:,} edges ({xref_count:,} source cross-references + {curated_count} curated edges).")
+        stats = build_graph(conn)
+    print(
+        f"Intertext graph ready: {stats['edge_count']:,} edges "
+        f"({stats['source_crossrefs']:,} source cross-references + {stats['curated']} curated edges)."
+    )
     return 0 if stats["edge_count"] >= len(CURATED) else 1
 
 
