@@ -3,10 +3,8 @@ from __future__ import annotations
 import ast
 import importlib
 import pkgutil
-import sqlite3
 import sys
 import tempfile
-from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,12 +33,12 @@ def audit_app_imports(errors: list[str]) -> None:
 
 
 def audit_script_import_symbols(errors: list[str]) -> None:
-    """Resolve every app symbol imported by launcher scripts without executing them.
+    """Resolve every app symbol imported by startup/support scripts.
 
-    Some scripts (notably import_corpus.py) parse command-line arguments at module
-    import time, so importing every script is unsafe. AST inspection still lets us
-    resolve all `from app... import ...` contracts and catches stale names such as
-    the former `from app.books import BOOKS` failure.
+    Some scripts parse command-line arguments at module-import time, so importing
+    every script is unsafe. AST inspection still resolves all `from app... import`
+    contracts and catches stale exported names before a Windows first-run seeder
+    ever executes.
     """
     for path in sorted((ROOT / "scripts").glob("*.py")):
         if path.name == Path(__file__).name:
@@ -144,7 +142,9 @@ def audit_routes(errors: list[str]) -> None:
     try:
         from app.main import app
 
-        paths = {route.path for route in app.routes}
+        # FastAPI/Starlette may expose internal included-router sentinels in
+        # app.routes. Only concrete route objects have a path attribute.
+        paths = {path for route in app.routes if (path := getattr(route, "path", None))}
         required = {
             "/",
             "/api/health",
