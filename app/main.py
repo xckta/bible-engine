@@ -105,6 +105,16 @@ def styles_css():
     return FileResponse(Path(__file__).parent / "static" / "styles.css", media_type="text/css")
 
 
+@app.get("/original.js")
+def original_js():
+    return FileResponse(Path(__file__).parent / "static" / "original.js", media_type="application/javascript")
+
+
+@app.get("/original.css")
+def original_css():
+    return FileResponse(Path(__file__).parent / "static" / "original.css", media_type="text/css")
+
+
 @app.get("/api/health")
 def health():
     prefs = preferences(settings.local_settings_path)
