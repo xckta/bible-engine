@@ -23,23 +23,15 @@ def _fail(errors: list[str]) -> int:
 
 def audit_app_imports(errors: list[str]) -> None:
     import app
-
     for info in pkgutil.iter_modules(app.__path__):
         name = f"app.{info.name}"
         try:
             importlib.import_module(name)
-        except Exception as exc:  # pragma: no cover - diagnostic path
+        except Exception as exc:
             errors.append(f"cannot import {name}: {type(exc).__name__}: {exc}")
 
 
 def audit_script_import_symbols(errors: list[str]) -> None:
-    """Resolve every app symbol imported by startup/support scripts.
-
-    Some scripts parse command-line arguments at module-import time, so importing
-    every script is unsafe. AST inspection still resolves all `from app... import`
-    contracts and catches stale exported names before a Windows first-run seeder
-    ever executes.
-    """
     for path in sorted((ROOT / "scripts").glob("*.py")):
         if path.name == Path(__file__).name:
             continue
@@ -53,14 +45,10 @@ def audit_script_import_symbols(errors: list[str]) -> None:
                 try:
                     module = importlib.import_module(node.module)
                 except Exception as exc:
-                    errors.append(
-                        f"{path.name}: cannot import module {node.module}: {type(exc).__name__}: {exc}"
-                    )
+                    errors.append(f"{path.name}: cannot import module {node.module}: {type(exc).__name__}: {exc}")
                     continue
                 for alias in node.names:
-                    if alias.name == "*":
-                        continue
-                    if not hasattr(module, alias.name):
+                    if alias.name != "*" and not hasattr(module, alias.name):
                         errors.append(f"{path.name}: {node.module} has no exported symbol {alias.name}")
             elif isinstance(node, ast.Import):
                 for alias in node.names:
@@ -68,9 +56,7 @@ def audit_script_import_symbols(errors: list[str]) -> None:
                         try:
                             importlib.import_module(alias.name)
                         except Exception as exc:
-                            errors.append(
-                                f"{path.name}: cannot import {alias.name}: {type(exc).__name__}: {exc}"
-                            )
+                            errors.append(f"{path.name}: cannot import {alias.name}: {type(exc).__name__}: {exc}")
 
 
 def audit_graph_seed(errors: list[str]) -> None:
@@ -78,19 +64,16 @@ def audit_graph_seed(errors: list[str]) -> None:
         from app.db import init_db, session
         from app.intertext_graph import graph_stats
         from scripts import seed_intertext_graph as seed
-
         with tempfile.TemporaryDirectory(prefix="bible-engine-contract-") as tmp:
             db = Path(tmp) / "contracts.db"
             init_db(db)
             with session(db) as conn:
                 stats = seed.build_graph(conn, include_source_crossrefs=False)
                 observed = graph_stats(conn)
-            if stats.get("curated") != len(seed.CURATED):
-                errors.append(
-                    f"graph seeder inserted {stats.get('curated')} curated edges; expected {len(seed.CURATED)}"
-                )
-            if observed.get("edge_count", 0) < len(seed.CURATED):
-                errors.append("graph seeder runtime smoke produced an incomplete graph")
+        if stats.get("curated") != len(seed.CURATED):
+            errors.append(f"graph seeder inserted {stats.get('curated')} curated edges; expected {len(seed.CURATED)}")
+        if observed.get("edge_count", 0) < len(seed.CURATED):
+            errors.append("graph seeder runtime smoke produced an incomplete graph")
     except Exception as exc:
         errors.append(f"graph seeder runtime smoke failed: {type(exc).__name__}: {exc}")
 
@@ -99,41 +82,20 @@ def audit_textual_witness_storage(errors: list[str]) -> None:
     try:
         from app.db import init_db, session
         from app.textual_witnesses import compare_verse, replace_edition_verses, upsert_edition, witness_stats
-
         with tempfile.TemporaryDirectory(prefix="bible-engine-witness-") as tmp:
             db = Path(tmp) / "witness.db"
             init_db(db)
             with session(db) as conn:
-                upsert_edition(
-                    conn,
-                    code="CONTRACT_A",
-                    name="Contract A",
-                    language="greek",
-                    edition_class="critical_edition",
-                )
-                upsert_edition(
-                    conn,
-                    code="CONTRACT_B",
-                    name="Contract B",
-                    language="greek",
-                    edition_class="byzantine_edition",
-                )
-                replace_edition_verses(
-                    conn,
-                    "CONTRACT_A",
-                    [{"book": "Jude", "chapter": 1, "verse": 5, "text": "ὅτι Ἰησοῦς λαόν"}],
-                )
-                replace_edition_verses(
-                    conn,
-                    "CONTRACT_B",
-                    [{"book": "Jude", "chapter": 1, "verse": 5, "text": "ὅτι κύριος λαόν"}],
-                )
+                upsert_edition(conn, code="CONTRACT_A", name="Contract A", language="greek", edition_class="critical_edition")
+                upsert_edition(conn, code="CONTRACT_B", name="Contract B", language="greek", edition_class="byzantine_edition")
+                replace_edition_verses(conn, "CONTRACT_A", [{"book":"Jude","chapter":1,"verse":5,"text":"ὅτι Ἰησοῦς λαόν"}])
+                replace_edition_verses(conn, "CONTRACT_B", [{"book":"Jude","chapter":1,"verse":5,"text":"ὅτι κύριος λαόν"}])
                 stats = witness_stats(conn)
                 comparison = compare_verse(conn, "Jude", 1, 5, "CONTRACT_A", "CONTRACT_B")
-            if stats.get("edition_count") != 2:
-                errors.append("textual-witness storage smoke did not retain both editions")
-            if comparison.get("collation", {}).get("changed_tokens", 0) < 1:
-                errors.append("textual-witness collation smoke did not detect the known variant")
+        if stats.get("edition_count") != 2:
+            errors.append("textual-witness storage smoke did not retain both editions")
+        if comparison.get("collation", {}).get("changed_tokens", 0) < 1:
+            errors.append("textual-witness collation smoke did not detect the known variant")
     except Exception as exc:
         errors.append(f"textual-witness runtime smoke failed: {type(exc).__name__}: {exc}")
 
@@ -141,54 +103,16 @@ def audit_textual_witness_storage(errors: list[str]) -> None:
 def audit_routes(errors: list[str]) -> None:
     try:
         from app.main import app
-
-        # FastAPI 0.141 may retain nested APIRouters as lazy _IncludedRouter
-        # objects in app.routes. The generated OpenAPI table is the stable public
-        # HTTP contract and necessarily expands those nested routers.
         paths = set(app.openapi().get("paths", {}))
         required = {
-            "/api/health",
-            "/api/ask",
-            "/api/graph",
-            "/api/graph/status",
-            "/api/original/lab/status",
-            "/api/research/status",
-            "/api/witness/status",
-            "/api/worldview/periods",
-            "/api/traditions/matrix",
-            "/api/timeline",
-            "/api/atlas/places",
-            "/api/deep-dive",
-            "/api/vault",
+            "/", "/originals", "/api/health", "/api/ask", "/api/graph", "/api/graph/status",
+            "/api/original/lab/status", "/api/research/status", "/api/witness/status",
+            "/api/worldview/periods", "/api/traditions/matrix", "/api/timeline",
+            "/api/atlas/places", "/api/deep-dive", "/api/vault",
         }
         missing = sorted(required - paths)
         if missing:
             errors.append("application OpenAPI contract missing: " + ", ".join(missing))
-
-        # HTML/static routes are deliberately absent from OpenAPI schemas. Check
-        # them against concrete flattened or included route objects separately.
-        static_required = {"/", "/originals"}
-        seen_static: set[str] = set()
-
-        def walk_routes(router) -> None:
-            for route in getattr(router, "routes", []):
-                path = getattr(route, "path", None)
-                if path:
-                    seen_static.add(path)
-                nested = getattr(route, "router", None)
-                if nested is not None:
-                    walk_routes(nested)
-                included = getattr(route, "routes", None)
-                if included and route is not router:
-                    for item in included:
-                        item_path = getattr(item, "path", None)
-                        if item_path:
-                            seen_static.add(item_path)
-
-        walk_routes(app)
-        missing_static = sorted(static_required - seen_static)
-        if missing_static:
-            errors.append("application static route contract missing: " + ", ".join(missing_static))
     except Exception as exc:
         errors.append(f"application route smoke failed: {type(exc).__name__}: {exc}")
 
