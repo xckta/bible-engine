@@ -16,6 +16,7 @@
       <span><b>BIBLE ENGINE</b><small>ORACLE // CLOSED CORPUS</small></span>
     </button>
     <div class="top-actions">
+      <button class="ghost" id="studyBtn">STUDIES</button>
       <button class="ghost" id="libraryBtn">LIBRARY</button>
       <button class="ghost" id="settingsBtn">SETTINGS</button>
       <span class="pulse-dot" id="statusDot"></span>
@@ -23,6 +24,11 @@
   </header>
 
   <main class="shell">
+    <div class="study-strip hidden" id="studyStrip">
+      <div><span class="study-kicker">ACTIVE STUDY</span><b id="activeStudyTitle">Study</b></div>
+      <div class="study-strip-meta"><span id="activeStudyContext">0 context chars</span><button id="studyOpenBtn">OPEN WORKSPACE ↗</button><button id="studyDetachBtn">DETACH ×</button></div>
+    </div>
+
     <section class="hero" id="hero">
       <div class="sigil-wrap" aria-hidden="true">
         <div class="sigil ring r1"></div><div class="sigil ring r2"></div><div class="sigil ring r3"></div>
@@ -61,7 +67,12 @@
     <section class="result hidden" id="result">
       <div class="result-head">
         <div><p class="eyebrow">ORACLE RESPONSE</p><h2 id="resultTitle">Synthesis</h2></div>
-        <div class="mode-chip" id="modeChip">CLOSED CORPUS</div>
+        <div class="result-actions">
+          <button class="ghost compact" id="pinResultBtn">PIN FINDING</button>
+          <button class="ghost compact" id="exportMdBtn">EXPORT MD</button>
+          <button class="ghost compact" id="exportJsonBtn">EXPORT JSON</button>
+          <div class="mode-chip" id="modeChip">CLOSED CORPUS</div>
+        </div>
       </div>
       <article class="answer" id="answerText"></article>
       <div class="claims" id="claims"></div>
@@ -79,19 +90,100 @@
     <div class="shelf-stats" id="shelfStats"></div>
     <div id="works"></div>
   </aside>
+
+  <aside class="drawer study-drawer" id="studyDrawer" aria-hidden="true">
+    <div class="drawer-head"><div><p class="eyebrow">LONG-FORM RESEARCH</p><h2>Study Workspace</h2></div><button class="x" data-close="studyDrawer">×</button></div>
+    <p class="drawer-copy">Every study keeps a full research log plus a separate curated context file. Only the curated context is sent into future consultations.</p>
+
+    <div class="study-create" id="studyCreate">
+      <input id="newStudyTitle" placeholder="Study title — e.g. Jude / Watchers deep dive">
+      <textarea id="newStudyObjective" placeholder="Objective or central research question"></textarea>
+      <button class="consult" id="createStudyBtn">CREATE STUDY <i>↗</i></button>
+    </div>
+
+    <div class="study-projects" id="studyProjects"></div>
+
+    <section class="study-workspace hidden" id="studyWorkspace">
+      <div class="workspace-head">
+        <div><span class="study-kicker">ACTIVE PROJECT</span><h3 id="studyTitle"></h3></div>
+        <button class="ghost compact danger" id="deleteStudyBtn">DELETE</button>
+      </div>
+      <label class="field-label">OBJECTIVE</label>
+      <textarea class="workspace-text" id="studyObjective"></textarea>
+      <label class="field-label">SCOPE / DESCRIPTION</label>
+      <textarea class="workspace-text small" id="studyDescription"></textarea>
+      <button class="ghost" id="saveStudyMetaBtn">SAVE PROJECT BRIEF</button>
+
+      <div class="context-meter"><div><span>CURATED CONTEXT</span><b id="contextReadout">0 / 6000</b></div><div class="meter"><i id="contextMeterBar"></i></div><p>Objective + pinned findings + notes + open questions. The raw log stays out of Codex context unless you promote something.</p><code class="context-path" id="contextPath"></code></div>
+
+      <div class="study-tools">
+        <button class="tool-tab active" data-kind="finding">PIN FINDING</button>
+        <button class="tool-tab" data-kind="note">ADD CONTEXT NOTE</button>
+        <button class="tool-tab" data-kind="question">QUEUE QUESTION</button>
+      </div>
+      <div class="study-add-row"><textarea id="studyItemText" placeholder="Add a durable finding to the project context…"></textarea><button class="consult" id="addStudyItemBtn">ADD</button></div>
+
+      <div class="study-section"><div class="section-head"><h4>Pinned Findings</h4><span id="findingCount"></span></div><div id="studyFindings"></div></div>
+      <div class="study-section"><div class="section-head"><h4>Context Notes</h4><span id="noteCount"></span></div><div id="studyNotes"></div></div>
+      <div class="study-section"><div class="section-head"><h4>Open Questions</h4><span id="questionCount"></span></div><div id="studyQuestions"></div></div>
+      <div class="study-section"><div class="section-head"><h4>Research Log</h4><span id="logCount"></span></div><div id="studyLog"></div></div>
+
+      <div class="export-panel">
+        <div><p class="eyebrow">PROJECT FILE</p><b>Portable deep-dive export</b><small>Markdown for reading / Obsidian. JSON for machine-readable backup.</small></div>
+        <div><button class="ghost" id="studyExportMd">MARKDOWN</button><button class="ghost" id="studyExportJson">JSON</button></div>
+      </div>
+    </section>
+  </aside>
+
   <div class="scrim hidden" id="scrim"></div>
 
   <dialog id="settingsDialog">
     <form method="dialog" class="settings-card" id="settingsForm">
       <div class="drawer-head"><div><p class="eyebrow">LOCAL CONFIGURATION</p><h2>Oracle Settings</h2></div><button class="x" value="cancel">×</button></div>
-      <div class="setting-block">
-        <label for="esvKey">ESV API key</label>
-        <input id="esvKey" type="password" autocomplete="off" placeholder="Paste your ESV API key">
-        <p>The key is stored only in <code>data/local_settings.json</code> on this computer and is excluded from Git. Canonical ESV text is fetched on demand and is not stored in the corpus database. <a href="https://api.esv.org/" target="_blank" rel="noreferrer">Get an ESV API key ↗</a></p>
-        <div class="setting-status" id="esvStatus"></div>
+      <div class="settings-grid">
+        <div class="setting-block span-2">
+          <label for="esvKey">ESV API KEY</label>
+          <input id="esvKey" type="password" autocomplete="off" placeholder="Leave blank to keep current key">
+          <p>The key stays in <code>data/local_settings.json</code>. Canonical ESV text is fetched on demand and is not accumulated in study logs. <a href="https://api.esv.org/" target="_blank" rel="noreferrer">ESV API ↗</a></p>
+          <div class="setting-status-row"><div class="setting-status" id="esvStatus"></div><button type="button" class="text-action" id="removeEsvBtn">REMOVE KEY</button></div>
+        </div>
+        <div class="setting-block">
+          <label for="reasoningEffort">CODEX REASONING</label>
+          <select id="reasoningEffort"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option></select>
+          <p>Medium is the default. Higher settings trade speed for deeper synthesis.</p>
+        </div>
+        <div class="setting-block">
+          <label>MODEL</label>
+          <div class="readonly-setting" id="modelName">gpt-5.6-luna</div>
+          <p>Generation remains Codex-only with no alternate-model fallback.</p>
+        </div>
+        <div class="setting-block">
+          <label for="canonicalDepth">CANONICAL RETRIEVAL</label>
+          <input id="canonicalDepth" type="number" min="1" max="20" value="8">
+          <p>Maximum canonical evidence rows for open-ended searches.</p>
+        </div>
+        <div class="setting-block">
+          <label for="referenceDepth">REFERENCE RETRIEVAL</label>
+          <input id="referenceDepth" type="number" min="0" max="40" value="8">
+          <p>Maximum noncanonical reference rows for open-ended searches.</p>
+        </div>
+        <div class="setting-block">
+          <label for="studyContextBudget">STUDY CONTEXT BUDGET</label>
+          <select id="studyContextBudget"><option value="3000">3,000 chars — lean</option><option value="6000">6,000 chars — balanced</option><option value="10000">10,000 chars — deep</option><option value="16000">16,000 chars — extensive</option></select>
+          <p>Only curated project context uses this budget. Research logs never auto-expand the prompt.</p>
+        </div>
+        <div class="setting-block">
+          <label for="motionSetting">ORACLE MOTION</label>
+          <select id="motionSetting"><option value="full">Full sigils + transitions</option><option value="reduced">Reduced motion</option></select>
+          <p>Does not change the brighter gold/readability pass.</p>
+        </div>
+        <div class="setting-block span-2">
+          <label>DEFAULT SHELVES</label>
+          <div class="setting-checks"><label><input id="defaultDeut" type="checkbox"><span>Deuterocanon enabled</span></label><label><input id="defaultReference" type="checkbox"><span>Reference library enabled</span></label></div>
+        </div>
       </div>
-      <div class="model-readout"><span>MODEL</span><b id="modelName">gpt-5.6-luna</b><span>REASONING</span><b id="effort">medium</b></div>
-      <div class="dialog-actions"><button class="ghost" value="cancel">CANCEL</button><button type="button" class="consult" id="saveSettings">SAVE + VERIFY</button></div>
+      <div class="model-readout"><span>MODEL</span><b id="modelReadout">gpt-5.6-luna</b><span>ACTIVE REASONING</span><b id="effort">medium</b></div>
+      <div class="dialog-actions"><button class="ghost" value="cancel">CANCEL</button><button type="button" class="consult" id="saveSettings">SAVE SETTINGS</button></div>
     </form>
   </dialog>
 
