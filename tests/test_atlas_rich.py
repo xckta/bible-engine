@@ -1,16 +1,17 @@
 import json
+import sqlite3
 from pathlib import Path
 
-from app.atlas_rich import atlas_books,atlas_stats,get_place,journey_detail,parse_openbible_line,query_places,replace_atlas
+from app.atlas_rich import atlas_books,atlas_stats,atlas_types,ensure_atlas_schema,get_place,journey_detail,parse_openbible_line,query_places,replace_atlas
 from app.db import init_db,session
 
-def rich(place_id='a1',name='Jerusalem',lon='35.235,31.778',verse='Matt.21.1'):
-    return {'id':place_id,'friendly_id':name,'type':'settlement','translation_name_counts':{name:5},
-            'identifications':[{'score':{'time_total':800},'resolutions':[{'lonlat':lon,'best_time_score':900,'description':name,'type':'settlement'}]}],
+def rich(place_id='a1',name='Jerusalem',lon='35.235,31.778',verse='Matt.21.1',kind='settlement'):
+    return {'id':place_id,'friendly_id':name,'type':'place','geojson_file':f'geometry/{place_id}.geojson','translation_name_counts':{name:5},
+            'identifications':[{'score':{'time_total':800},'types':[kind],'resolutions':[{'lonlat':lon,'best_time_score':900,'description':name}]}],
             'verses':[{'osis':verse,'readable':'Matthew 21:1','translations':['esv'],'instance_types':{'name':10}}]}
 
-def test_parse_rich_openbible_record_with_verse_and_resolution():
-    place,verses=parse_openbible_line(json.dumps(rich()));assert place['name']=='Jerusalem';assert round(place['latitude'],3)==31.778;assert place['confidence_label']=='higher';assert verses[0]['book']=='Matthew' and verses[0]['chapter']==21
+def test_parse_rich_openbible_record_with_verse_resolution_type_and_geometry():
+    place,verses=parse_openbible_line(json.dumps(rich()));assert place['name']=='Jerusalem';assert round(place['latitude'],3)==31.778;assert place['confidence_label']=='higher';assert place['detailed_type']=='settlement';assert place['geometry_path']=='geometry/a1.geojson';assert verses[0]['book']=='Matthew' and verses[0]['chapter']==21
 
 def test_parse_feature_record_and_skip_reference_surface_code():
     feature={'type':'Feature','geometry':{'type':'Point','coordinates':[35.2,31.7]},'properties':{'id':'a2','name':'Bethany','alternate_names':['Beth Anya'],'detailed_type':'city_or_town','inside_modern_states':['Israel']}}
@@ -18,11 +19,14 @@ def test_parse_feature_record_and_skip_reference_surface_code():
     noise={'type':'Feature','geometry':{'type':'Point','coordinates':[35.2,31.7]},'properties':{'id':'z','name':'0RKFH','reference_ids':[],'alternate_names':[]}}
     assert parse_openbible_line(json.dumps(noise)) is None
 
-def test_atlas_storage_search_detail_books(tmp_path:Path):
-    db=tmp_path/'atlas.db';init_db(db);a=parse_openbible_line(json.dumps(rich('a1','Jerusalem','35.235,31.778','Matt.21.1')));b=parse_openbible_line(json.dumps(rich('a2','Bethany','35.261,31.771','John.11.18')))
+def test_atlas_storage_search_detail_books_and_types(tmp_path:Path):
+    db=tmp_path/'atlas.db';init_db(db);a=parse_openbible_line(json.dumps(rich('a1','Jerusalem','35.235,31.778','Matt.21.1','settlement')));b=parse_openbible_line(json.dumps(rich('a2','Bethany','35.261,31.771','John.11.18','village')))
     with session(db) as c:
-        result=replace_atlas(c,[a,b]);stats=atlas_stats(c);hits=query_places(c,q='Jerusalem',resolved_only=True);detail=get_place(c,'a1');books=atlas_books(c)
-    assert result['place_count']==2 and stats['occurrence_count']==2;assert hits['items'][0]['id']=='a1';assert detail['occurrences'][0]['reference']=='Matthew 21:1';assert {x['book'] for x in books}=={'Matthew','John'}
+        result=replace_atlas(c,[a,b]);stats=atlas_stats(c);hits=query_places(c,q='Jerusalem',resolved_only=True);detail=get_place(c,'a1');books=atlas_books(c);types=atlas_types(c)
+    assert result['place_count']==2 and stats['occurrence_count']==2;assert hits['items'][0]['id']=='a1';assert detail['occurrences'][0]['reference']=='Matthew 21:1';assert detail['geometry_path']=='geometry/a1.geojson';assert {x['book'] for x in books}=={'Matthew','John'};assert {x['type'] for x in types}=={'settlement','village'}
+
+def test_atlas_schema_migrates_geometry_path(tmp_path:Path):
+    db=tmp_path/'legacy.db';conn=sqlite3.connect(db);conn.row_factory=sqlite3.Row;conn.execute("CREATE TABLE atlas_places(id TEXT PRIMARY KEY,name TEXT NOT NULL,place_type TEXT DEFAULT '',detailed_type TEXT DEFAULT '',aliases_json TEXT DEFAULT '[]',latitude REAL,longitude REAL,geometry_json TEXT DEFAULT '',modern_states_json TEXT DEFAULT '[]',confidence REAL,confidence_label TEXT DEFAULT '',identification_summary_json TEXT DEFAULT '[]',linked_data_json TEXT DEFAULT '{}',comment TEXT DEFAULT '',source_format TEXT DEFAULT '',source_label TEXT DEFAULT '',source_url TEXT DEFAULT '',license TEXT DEFAULT '',friendly_id TEXT DEFAULT '',preceding_article TEXT DEFAULT '',verse_count INTEGER DEFAULT 0)");conn.commit();ensure_atlas_schema(conn);cols={r['name'] for r in conn.execute('PRAGMA table_info(atlas_places)')};conn.close();assert 'geometry_path' in cols
 
 def test_journey_resolution_prefers_cited_occurrence(tmp_path:Path):
     db=tmp_path/'journey.db';init_db(db);records=[]
