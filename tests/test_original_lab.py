@@ -6,6 +6,7 @@ from app.original_core import strongs_from_oshb_lemma
 from app.original_parsers import parse_hebrew_lexicon, parse_lxx_lemma_file, parse_oshb_xml, parse_tischendorf_file
 from app.original_queries import lemma_report, search_words, translation_parallels, verse_words
 from app.original_storage import ensure_original_schema, replace_lxx_lemma_occurrences, replace_original_words, upsert_original_source
+from scripts.sync_compact_originals import sync_source
 
 
 def test_oshb_aramaic_and_augmented_strongs(tmp_path: Path):
@@ -47,6 +48,21 @@ def test_deep_lab_queries_and_aramaic_filter(tmp_path: Path):
         payload=verse_words(c,'Daniel 2:4')
     assert len(hits)==1 and hits[0]['word_language']=='Aramaic'
     assert payload['language']=='Aramaic'
+
+
+def test_compact_cache_projects_deep_rows_and_renumbers_positions(tmp_path: Path):
+    db=tmp_path/'compact.db';init_db(db)
+    with session(db) as c:
+        sid=upsert_original_source(c,code='OSHB',name='OSHB',language='Hebrew',testament='Old Testament',license_text='x',source_url='u',attribution='a')
+        replace_original_words(c,sid,[
+            {'book':'Psalms','book_order':19,'chapter':3,'verse':1,'position':1,'source_word_id':'a1','surface':'א','surface_normalized':'א','source_book':'Psalms','source_chapter':3,'source_verse':1,'word_language':'Hebrew'},
+            {'book':'Psalms','book_order':19,'chapter':3,'verse':1,'position':1,'source_word_id':'a2','surface':'ב','surface_normalized':'ב','source_book':'Psalms','source_chapter':3,'source_verse':2,'word_language':'Aramaic'},
+        ])
+        assert sync_source(c,'OSHB','UHB v2.1.32')==2
+        rows=c.execute("SELECT language,source,book,chapter,verse,position,surface FROM original_words ORDER BY position").fetchall()
+    assert [r['position'] for r in rows]==[1,2]
+    assert [r['language'] for r in rows]==['hebrew','aramaic']
+    assert all(r['source']=='UHB v2.1.32' for r in rows)
 
 
 def test_bdb_profile_and_augindex(tmp_path: Path):
