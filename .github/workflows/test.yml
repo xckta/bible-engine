@@ -43,3 +43,38 @@ jobs:
           node --check app/static/research.js
       - name: Python compile check
         run: python -m compileall -q app scripts tests
+
+  windows-runtime:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install
+        shell: pwsh
+        run: python -m pip install -e '.[dev]'
+      - name: Windows startup runtime contracts
+        shell: pwsh
+        run: python scripts/check_runtime_contracts.py
+      - name: Windows Python tests
+        shell: pwsh
+        run: python -m pytest
+      - name: Windows graph first-run smoke
+        shell: pwsh
+        env:
+          BIBLE_DB_PATH: ${{ runner.temp }}\bible-engine-graph.db
+        run: |
+          python scripts/seed_intertext_graph.py
+          python scripts/check_intertext_graph.py
+      - name: PowerShell launcher syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'scripts/start_windows.ps1'), [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+          Write-Host 'start_windows.ps1 syntax OK'
