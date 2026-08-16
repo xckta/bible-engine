@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import re
+import urllib.request
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
@@ -10,7 +13,8 @@ from .atlas_rich import atlas_books, atlas_countries, atlas_stats, atlas_types, 
 from .config import settings
 from .db import session
 
-router=APIRouter();STATIC=Path(__file__).parent/'static'
+router=APIRouter();STATIC=Path(__file__).parent/'static';ROOT=Path(__file__).resolve().parents[1]
+GEOMETRY_RE=re.compile(r'^geometry/[A-Za-z0-9_-]+\.geojson$')
 
 @router.get('/research.js')
 def enhanced_research_js():
@@ -28,7 +32,7 @@ def atlas_js():return Response((STATIC/'atlas.js').read_text(encoding='utf-8'),m
 @router.get('/api/atlas/explorer/status')
 def status():
     with session(settings.db_path) as c:
-        return {**atlas_stats(c),'types':atlas_types(c)[:40],'books':atlas_books(c),'countries':atlas_countries(c)[:80],'journeys':journey_catalog(c),
+        return {**atlas_stats(c),'types':atlas_types(c)[:80],'books':atlas_books(c),'countries':atlas_countries(c)[:120],'journeys':journey_catalog(c),
                 'notice':'Geographic identifications are research data, not canonical evidence. Confidence and ambiguity remain visible; map segments between journey stops are schematic unless a source provides route geometry.'}
 
 @router.get('/api/atlas/explorer/places')
@@ -44,6 +48,40 @@ def place(place_id:str,occurrence_limit:int=Query(default=250,ge=1,le=1000)):
         with session(settings.db_path) as c:
             p=get_place(c,place_id,occurrence_limit);p['nearby']=nearby(c,p['latitude'],p['longitude'],35,12,place_id) if p.get('resolved') else [];return p
     except KeyError as exc:raise HTTPException(404,detail={'code':'atlas_place_not_found','message':'Atlas place not found.'}) from exc
+
+@router.get('/api/atlas/explorer/place/{place_id}/geometry')
+def place_geometry(place_id:str):
+    try:
+        with session(settings.db_path) as c:p=get_place(c,place_id,1)
+    except KeyError as exc:raise HTTPException(404,detail={'code':'atlas_place_not_found','message':'Atlas place not found.'}) from exc
+    if p.get('geometry'):
+        return p['geometry']
+    rel=str(p.get('geometry_path') or '').strip()
+    if not rel:
+        raise HTTPException(404,detail={'code':'atlas_geometry_missing','message':'No source geometry is published for this place.'})
+    if not GEOMETRY_RE.fullmatch(rel):
+        raise HTTPException(502,detail={'code':'atlas_geometry_path_invalid','message':'The source geometry path is not in the expected OpenBible format.'})
+    cache=ROOT/'data'/'sources'/'atlas'/'geometry'/Path(rel).name
+    cache.parent.mkdir(parents=True,exist_ok=True)
+    if not cache.is_file() or cache.stat().st_size<20:
+        url='https://raw.githubusercontent.com/openbibleinfo/Bible-Geocoding-Data/main/'+rel
+        req=urllib.request.Request(url,headers={'User-Agent':'BibleEngine-Atlas/1.1'})
+        try:
+            with urllib.request.urlopen(req,timeout=45) as response:
+                raw=response.read(8_000_001)
+        except Exception as exc:
+            raise HTTPException(502,detail={'code':'atlas_geometry_download_failed','message':f'Source geometry could not be downloaded: {exc}'}) from exc
+        if len(raw)>8_000_000:
+            raise HTTPException(502,detail={'code':'atlas_geometry_too_large','message':'Source geometry exceeded the Atlas safety limit.'})
+        try:payload=json.loads(raw.decode('utf-8-sig'))
+        except Exception as exc:raise HTTPException(502,detail={'code':'atlas_geometry_invalid','message':'Source geometry was not valid GeoJSON.'}) from exc
+        if not isinstance(payload,dict) or payload.get('type') not in {'Feature','FeatureCollection','Point','MultiPoint','LineString','MultiLineString','Polygon','MultiPolygon','GeometryCollection'}:
+            raise HTTPException(502,detail={'code':'atlas_geometry_invalid','message':'Source geometry was not a supported GeoJSON object.'})
+        tmp=cache.with_suffix('.tmp');tmp.write_text(json.dumps(payload,ensure_ascii=False,separators=(',',':')),encoding='utf-8');tmp.replace(cache)
+    try:payload=json.loads(cache.read_text(encoding='utf-8'))
+    except Exception as exc:
+        cache.unlink(missing_ok=True);raise HTTPException(502,detail={'code':'atlas_geometry_cache_invalid','message':'Cached source geometry was invalid and has been discarded.'}) from exc
+    return payload
 
 @router.get('/api/atlas/explorer/nearby')
 def nearby_places(lat:float=Query(ge=-90,le=90),lon:float=Query(ge=-180,le=180),radius_km:float=Query(default=50,gt=0,le=500),limit:int=Query(default=30,ge=1,le=100)):
