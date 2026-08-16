@@ -18,11 +18,14 @@ def main() -> int:
     by_source = {row["source"]: int(row["word_count"]) for row in stats["sources"]}
     hebrew = by_source.get("UHB v2.1.32", 0)
     greek = by_source.get("UGNT v0.34", 0)
-    print(f"Original languages: UHB {hebrew:,} words | UGNT {greek:,} words")
+    print(f"Compact Languages drawer: Hebrew/Aramaic {hebrew:,} words | Greek {greek:,} words")
     if hebrew < 100000 or greek < 100000:
-        print("Original-Language Lab corpus missing or incomplete.", file=sys.stderr)
+        print(
+            "Compact Languages drawer cache is missing or incomplete; regenerate it from the verified deep corpus.",
+            file=sys.stderr,
+        )
         return 1
-    print("Original-Language Lab corpus is ready.")
+    print("Compact Languages drawer cache is ready.")
     return 0
 
 
