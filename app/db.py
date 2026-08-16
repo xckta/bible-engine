@@ -72,6 +72,26 @@ CREATE TRIGGER IF NOT EXISTS ref_au AFTER UPDATE ON reference_passages BEGIN
   INSERT INTO reference_fts(reference_fts,rowid,text,section) VALUES('delete',old.id,old.text,old.section);
   INSERT INTO reference_fts(rowid,text,section) VALUES(new.id,new.text,new.section);
 END;
+CREATE TABLE IF NOT EXISTS original_words (
+  id INTEGER PRIMARY KEY,
+  language TEXT NOT NULL,
+  source TEXT NOT NULL,
+  book TEXT NOT NULL,
+  book_order INTEGER NOT NULL,
+  chapter INTEGER NOT NULL,
+  verse INTEGER NOT NULL,
+  position INTEGER NOT NULL,
+  surface TEXT NOT NULL,
+  normalized TEXT NOT NULL DEFAULT '',
+  lemma TEXT NOT NULL DEFAULT '',
+  strongs TEXT NOT NULL DEFAULT '',
+  morph TEXT NOT NULL DEFAULT '',
+  transliteration TEXT NOT NULL DEFAULT '',
+  UNIQUE(source,book,chapter,verse,position)
+);
+CREATE INDEX IF NOT EXISTS original_ref_idx ON original_words(book,chapter,verse,position);
+CREATE INDEX IF NOT EXISTS original_lemma_idx ON original_words(lemma,language);
+CREATE INDEX IF NOT EXISTS original_strongs_idx ON original_words(strongs);
 """
 
 
@@ -89,8 +109,6 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 def init_db(path: Path) -> None:
     with connect(path) as conn:
-        # Existing v0.2 databases do not have corpus_tier. Add it before creating triggers
-        # that expect the modern schema.
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS translations (
           id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
@@ -179,6 +197,23 @@ def replace_reference_passages(conn: sqlite3.Connection, work_id: int, passages:
     return len(rows)
 
 
+def replace_original_words(conn: sqlite3.Connection, source: str, rows: Iterable[dict]) -> int:
+    conn.execute("DELETE FROM original_words WHERE source=?", (source,))
+    payload = [
+        (
+            r["language"], source, r["book"], int(r["book_order"]), int(r["chapter"]), int(r["verse"]), int(r["position"]),
+            r["surface"], r.get("normalized", ""), r.get("lemma", ""), r.get("strongs", ""), r.get("morph", ""),
+            r.get("transliteration", ""),
+        ) for r in rows if r.get("surface", "").strip()
+    ]
+    conn.executemany(
+        "INSERT INTO original_words(language,source,book,book_order,chapter,verse,position,surface,normalized,lemma,strongs,morph,transliteration) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        payload,
+    )
+    return len(payload)
+
+
 def library_stats(conn: sqlite3.Connection) -> dict:
     canonical = conn.execute("SELECT COUNT(*) n FROM verses WHERE corpus_tier='canonical' AND translation_id=(SELECT id FROM translations WHERE code='WEB')").fetchone()["n"]
     deuterocanon = conn.execute("SELECT COUNT(*) n FROM verses WHERE corpus_tier='deuterocanon' AND translation_id=(SELECT id FROM translations WHERE code='WEB')").fetchone()["n"]
@@ -187,4 +222,10 @@ def library_stats(conn: sqlite3.Connection) -> dict:
         "SELECT w.code,w.name,w.category,w.relevance,w.source_label,w.source_url,w.license,COUNT(p.id) passage_count "
         "FROM reference_works w LEFT JOIN reference_passages p ON p.work_id=w.id GROUP BY w.id ORDER BY w.name"
     ).fetchall()]
-    return {"canonical_verses": int(canonical), "deuterocanon_verses": int(deuterocanon), "reference_passages": int(references), "reference_works": works}
+    original = [dict(r) for r in conn.execute(
+        "SELECT language,source,COUNT(*) word_count,COUNT(DISTINCT lemma) lemma_count FROM original_words GROUP BY language,source ORDER BY language"
+    ).fetchall()]
+    return {
+        "canonical_verses": int(canonical), "deuterocanon_verses": int(deuterocanon),
+        "reference_passages": int(references), "reference_works": works, "original_languages": original,
+    }
