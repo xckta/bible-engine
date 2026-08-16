@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from .version import ASSET_VERSION, BUILD_ID, VERSION
 
@@ -53,6 +53,30 @@ def graph_js_v2(): return _asset("graph.js", "application/javascript")
 
 @router.get("/graph.css")
 def graph_css_v2(): return _asset("graph.css", "text/css")
+
+
+@router.get("/research.js")
+def research_js_v2():
+    base = (STATIC / "research.js").read_text(encoding="utf-8")
+    loader = f"""
+;(()=>{{
+  if(document.querySelector('script[data-bible-atlas-v2]'))return;
+  const s=document.createElement('script');
+  s.src='/atlas.js?v={ASSET_VERSION}';s.dataset.bibleAtlasV2='1';
+  document.head.appendChild(s);
+}})();
+"""
+    return Response(base + loader, media_type="application/javascript", headers=NO_STORE)
+
+
+@router.get("/research.css")
+def research_css_v2():
+    body = (STATIC / "research.css").read_text(encoding="utf-8") + "\n\n" + (STATIC / "atlas.css").read_text(encoding="utf-8")
+    return Response(body, media_type="text/css", headers=NO_STORE)
+
+
+@router.get("/atlas.js")
+def atlas_js_v2(): return _asset("atlas.js", "application/javascript")
 
 
 @router.get("/api/build")
