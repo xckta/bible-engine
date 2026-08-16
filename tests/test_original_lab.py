@@ -1,10 +1,11 @@
+import sqlite3
 from pathlib import Path
 
 from app.db import init_db, session, upsert_translation, replace_translation_verses
 from app.original_core import strongs_from_oshb_lemma
 from app.original_parsers import parse_hebrew_lexicon, parse_lxx_lemma_file, parse_oshb_xml
 from app.original_queries import lemma_report, search_words, translation_parallels, verse_words
-from app.original_storage import replace_lxx_lemma_occurrences, replace_original_words, upsert_original_source
+from app.original_storage import ensure_original_schema, replace_lxx_lemma_occurrences, replace_original_words, upsert_original_source
 
 
 def test_oshb_aramaic_and_augmented_strongs(tmp_path: Path):
@@ -56,3 +57,42 @@ def test_translation_parallels(tmp_path: Path):
         replace_translation_verses(c,web,[row]);r2=dict(row);r2['text']='In the beginning was the Word;';replace_translation_verses(c,asv,[r2])
         rows=translation_parallels(c,'John 1:1')
     assert [x['translation'] for x in rows]==['WEB','ASV']
+
+
+def test_word_identity_allows_remapped_target_position_overlap(tmp_path: Path):
+    db=tmp_path/'identity.db';init_db(db)
+    with session(db) as c:
+        sid=upsert_original_source(c,code='OSHB',name='OSHB',language='Hebrew',testament='Old Testament',license_text='x',source_url='u',attribution='a')
+        rows=[
+            {'book':'Psalms','book_order':19,'chapter':3,'verse':1,'position':1,'source_word_id':'a1','surface':'א','source_book':'Psalms','source_chapter':3,'source_verse':1,'word_language':'Hebrew'},
+            {'book':'Psalms','book_order':19,'chapter':3,'verse':1,'position':1,'source_word_id':'a2','surface':'ב','source_book':'Psalms','source_chapter':3,'source_verse':2,'word_language':'Hebrew'},
+        ]
+        assert replace_original_words(c,sid,rows)==2
+        count=c.execute("SELECT COUNT(*) n FROM original_lab_words WHERE source_id=? AND book='Psalms' AND chapter=3 AND verse=1",(sid,)).fetchone()['n']
+    assert count==2
+
+
+def test_legacy_target_unique_schema_migrates_to_source_identity(tmp_path: Path):
+    db=tmp_path/'legacy.db';init_db(db)
+    with sqlite3.connect(db) as c:
+        c.executescript('''
+        CREATE TABLE IF NOT EXISTS original_lab_sources(
+          id INTEGER PRIMARY KEY,code TEXT NOT NULL UNIQUE,name TEXT NOT NULL,language TEXT NOT NULL,testament TEXT NOT NULL,
+          license TEXT NOT NULL DEFAULT '',source_url TEXT NOT NULL DEFAULT '',attribution TEXT NOT NULL DEFAULT '',version TEXT NOT NULL DEFAULT '',installed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS original_lab_words(
+          id INTEGER PRIMARY KEY,source_id INTEGER NOT NULL,book TEXT NOT NULL,book_order INTEGER NOT NULL,chapter INTEGER NOT NULL,verse INTEGER NOT NULL,position INTEGER NOT NULL,
+          source_word_id TEXT NOT NULL DEFAULT '',surface TEXT NOT NULL,surface_normalized TEXT NOT NULL DEFAULT '',lemma TEXT NOT NULL DEFAULT '',lemma_normalized TEXT NOT NULL DEFAULT '',
+          alt_lemma TEXT NOT NULL DEFAULT '',strongs TEXT NOT NULL DEFAULT '',morph TEXT NOT NULL DEFAULT '',morph_expanded TEXT NOT NULL DEFAULT '',transliteration TEXT NOT NULL DEFAULT '',
+          word_language TEXT NOT NULL DEFAULT '',source_book TEXT NOT NULL DEFAULT '',source_chapter INTEGER NOT NULL DEFAULT 0,source_verse INTEGER NOT NULL DEFAULT 0,verse_mapping_type TEXT NOT NULL DEFAULT 'same',
+          UNIQUE(source_id,book,chapter,verse,position)
+        );
+        ''')
+    with session(db) as c:
+        ensure_original_schema(c)
+        unique_sets=[]
+        for idx in c.execute('PRAGMA index_list(original_lab_words)').fetchall():
+            if not idx['unique']: continue
+            unique_sets.append([r['name'] for r in c.execute(f"PRAGMA index_info('{idx['name']}')").fetchall()])
+    assert ['source_id','book','chapter','verse','position'] not in unique_sets
+    assert ['source_id','source_book','source_chapter','source_verse','position'] in unique_sets
