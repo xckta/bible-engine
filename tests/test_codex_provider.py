@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.providers import CodexClient
+from app.providers import CodexClient, _resolve_windows_native_codex
 
 
 def test_codex_exec_is_locked_to_requested_model_and_no_tools(monkeypatch):
@@ -53,3 +53,28 @@ def test_status_only_checks_that_codex_launches(monkeypatch):
     assert status.runnable is True
     assert status.ready is True
     assert status.version == "codex-cli 1.0"
+
+
+def test_windows_npm_shim_resolves_platform_native_exe(tmp_path):
+    npm_root = tmp_path / "npm"
+    shim = npm_root / "codex.cmd"
+    shim.parent.mkdir(parents=True)
+    shim.write_text("@echo off", encoding="utf-8")
+
+    native = (
+        npm_root
+        / "node_modules"
+        / "@openai"
+        / "codex"
+        / "node_modules"
+        / "@openai"
+        / "codex-win32-x64"
+        / "vendor"
+        / "x86_64-pc-windows-msvc"
+        / "bin"
+        / "codex.exe"
+    )
+    native.parent.mkdir(parents=True)
+    native.write_bytes(b"MZ")
+
+    assert _resolve_windows_native_codex(shim, machine="AMD64") == native
