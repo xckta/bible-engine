@@ -142,16 +142,15 @@ def audit_routes(errors: list[str]) -> None:
     try:
         from app.main import app
 
-        # FastAPI/Starlette may expose internal included-router sentinels in
-        # app.routes. Only concrete route objects have a path attribute.
-        paths = {path for route in app.routes if (path := getattr(route, "path", None))}
+        # FastAPI 0.141 may retain nested APIRouters as lazy _IncludedRouter
+        # objects in app.routes. The generated OpenAPI table is the stable public
+        # HTTP contract and necessarily expands those nested routers.
+        paths = set(app.openapi().get("paths", {}))
         required = {
-            "/",
             "/api/health",
             "/api/ask",
             "/api/graph",
             "/api/graph/status",
-            "/originals",
             "/api/original/lab/status",
             "/api/research/status",
             "/api/witness/status",
@@ -164,7 +163,32 @@ def audit_routes(errors: list[str]) -> None:
         }
         missing = sorted(required - paths)
         if missing:
-            errors.append("application route contract missing: " + ", ".join(missing))
+            errors.append("application OpenAPI contract missing: " + ", ".join(missing))
+
+        # HTML/static routes are deliberately absent from OpenAPI schemas. Check
+        # them against concrete flattened or included route objects separately.
+        static_required = {"/", "/originals"}
+        seen_static: set[str] = set()
+
+        def walk_routes(router) -> None:
+            for route in getattr(router, "routes", []):
+                path = getattr(route, "path", None)
+                if path:
+                    seen_static.add(path)
+                nested = getattr(route, "router", None)
+                if nested is not None:
+                    walk_routes(nested)
+                included = getattr(route, "routes", None)
+                if included and route is not router:
+                    for item in included:
+                        item_path = getattr(item, "path", None)
+                        if item_path:
+                            seen_static.add(item_path)
+
+        walk_routes(app)
+        missing_static = sorted(static_required - seen_static)
+        if missing_static:
+            errors.append("application static route contract missing: " + ", ".join(missing_static))
     except Exception as exc:
         errors.append(f"application route smoke failed: {type(exc).__name__}: {exc}")
 
