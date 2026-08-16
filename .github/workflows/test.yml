@@ -24,6 +24,7 @@ jobs:
         run: |
           node --check app/static/app.js
           node --check app/static/original.js
+          node --check app/static/originals.js
           node --check app/static/graph.js
           node --check app/static/research.js
       - name: Python compile check

@@ -48,6 +48,11 @@ try{
     Step 'Installing Hebrew + Greek Original-Language Lab...' {& $venv 'scripts\seed_original_languages.py'}
     Step 'Verifying Original-Language Lab...' {& $venv 'scripts\check_original_languages.py'}
   }else{Write-Host 'Original-Language Lab ready.' -ForegroundColor DarkGreen}
+  & $venv 'scripts\check_original_lab.py' *> $null
+  if($LASTEXITCODE -ne 0){
+    Step 'Installing deep Hebrew + Aramaic + Greek Lab + BDB/LXX witnesses...' {& $venv 'scripts\seed_original_lab.py'}
+    Step 'Verifying deep Original Language Lab...' {& $venv 'scripts\check_original_lab.py'}
+  }else{Write-Host 'Deep Original Language Lab ready.' -ForegroundColor DarkGreen}
   & $venv 'scripts\check_intertext_graph.py' *> $null
   if($LASTEXITCODE -ne 0){
     Step 'Building Intertextual Graph...' {& $venv 'scripts\seed_intertext_graph.py'}

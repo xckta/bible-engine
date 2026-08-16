@@ -12,9 +12,15 @@ DEFAULT_PREFERENCES = {
     "include_reference": True,
     "study_context_chars": 6000,
     "motion": "full",
+    "original_show_transliteration": True,
+    "original_morphology": "both",
+    "hebrew_display": "pointed",
+    "original_occurrence_limit": 60,
 }
 _ALLOWED_REASONING = {"low", "medium", "high", "xhigh"}
 _ALLOWED_MOTION = {"full", "reduced"}
+_ALLOWED_ORIGINAL_MORPH = {"both", "expanded", "raw"}
+_ALLOWED_HEBREW_DISPLAY = {"pointed", "no_cantillation", "unpointed"}
 
 
 def load_settings(path: Path) -> dict:
@@ -77,6 +83,15 @@ def preferences(path: Path) -> dict:
     out["include_reference"] = bool(out.get("include_reference", True))
     motion = str(out.get("motion", "full")).lower()
     out["motion"] = motion if motion in _ALLOWED_MOTION else "full"
+    out["original_show_transliteration"] = bool(out.get("original_show_transliteration", True))
+    morph = str(out.get("original_morphology", "both")).lower()
+    out["original_morphology"] = morph if morph in _ALLOWED_ORIGINAL_MORPH else "both"
+    hebrew = str(out.get("hebrew_display", "pointed")).lower()
+    out["hebrew_display"] = hebrew if hebrew in _ALLOWED_HEBREW_DISPLAY else "pointed"
+    try:
+        out["original_occurrence_limit"] = max(10, min(int(out["original_occurrence_limit"]), 200))
+    except (TypeError, ValueError):
+        out["original_occurrence_limit"] = 60
     return out
 
 
