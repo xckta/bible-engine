@@ -12,7 +12,7 @@ from .db import init_db, list_translations, session
 from .providers import CodexClient, ProviderError
 from .retrieval import retrieve
 
-app = FastAPI(title="Bible Only Engine", version="0.2.0")
+app = FastAPI(title="Bible Only Engine", version="0.2.1")
 codex = CodexClient(
     command=settings.codex_command,
     model=settings.codex_model,
@@ -52,11 +52,10 @@ def health():
         "translations": translations,
         "embedding_count": embedding_count,
         "codex_installed": status.installed,
-        "codex_authenticated": status.authenticated,
-        "codex_chatgpt_auth": status.chatgpt_auth,
         "codex_ready": status.ready,
         "codex_version": status.version,
-        "codex_auth_detail": status.auth_detail,
+        "codex_detail": status.detail,
+        "authentication": "checked by the first real codex exec request",
         "model": settings.codex_model,
         "reasoning_effort": settings.codex_reasoning_effort,
     }
@@ -72,12 +71,7 @@ def translations():
 def ask(req: AskRequest):
     status = codex.status()
     if not status.ready:
-        if not status.installed:
-            detail = "Codex CLI is required. Close the app and run START_BIBLE_ENGINE.bat to install/configure it."
-        elif not status.authenticated:
-            detail = "Codex CLI is not signed in. Run `codex login` and choose ChatGPT sign-in."
-        else:
-            detail = "Bible Engine requires ChatGPT-authenticated Codex, not API-key authentication. Run `codex logout`, then `codex login`."
+        detail = status.detail or "Codex CLI is required but could not be started."
         raise HTTPException(503, detail=detail)
 
     with session(settings.db_path) as conn:
