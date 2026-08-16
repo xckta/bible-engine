@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +15,46 @@ LEGACY_SOURCES = {
     "OSHB": "UHB v2.1.32",
     "TISCH": "UGNT v0.34",
 }
+
+
+def rows_for_source(conn, source_code: str):
+    """Compatibility/testing projection of the verified deep corpus.
+
+    Production synchronization uses sync_source() below so the half-million-row
+    cache never has to live in Python memory. This generator remains available for
+    focused regression tests and callers that need to inspect the projection.
+    """
+    ensure_original_schema(conn)
+    rows = conn.execute(
+        "SELECT w.book,w.book_order,w.chapter,w.verse,w.position,w.surface,"
+        "w.surface_normalized,w.lemma,w.strongs,w.morph,w.transliteration,"
+        "COALESCE(NULLIF(w.word_language,''),s.language) word_language "
+        "FROM original_lab_words w JOIN original_lab_sources s ON s.id=w.source_id "
+        "WHERE s.code=? ORDER BY w.book_order,w.chapter,w.verse,w.position,w.id",
+        (source_code,),
+    ).fetchall()
+    positions: dict[tuple[str, int, int], int] = defaultdict(int)
+    for row in rows:
+        key = (row["book"], int(row["chapter"]), int(row["verse"]))
+        positions[key] += 1
+        language = str(row["word_language"] or "").strip().lower()
+        if language not in {"hebrew", "aramaic", "greek"}:
+            language = "greek" if source_code == "TISCH" else "hebrew"
+        yield {
+            "language": language,
+            "source": LEGACY_SOURCES[source_code],
+            "book": row["book"],
+            "book_order": int(row["book_order"]),
+            "chapter": int(row["chapter"]),
+            "verse": int(row["verse"]),
+            "position": positions[key],
+            "surface": row["surface"],
+            "normalized": row["surface_normalized"] or "",
+            "lemma": row["lemma"] or "",
+            "strongs": row["strongs"] or "",
+            "morph": row["morph"] or "",
+            "transliteration": row["transliteration"] or "",
+        }
 
 
 def sync_source(conn, source_code: str, legacy_source: str) -> int:
@@ -78,7 +119,6 @@ def main() -> int:
             count = sync_source(conn, code, legacy_source)
             print(f"Compact cache: {legacy_source} <- {code}: {count:,} words")
 
-        # Validate the exact cache just written before returning success.
         compact_counts = {
             row["source"]: int(row["n"])
             for row in conn.execute(
