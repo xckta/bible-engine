@@ -10,11 +10,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.books import BOOKS
+from app.books import CANONICAL_BOOKS
 from app.config import settings
 from app.db import init_db, replace_original_words, session
 from app.original_languages import parse_original_usfm
 
+# Legacy compatibility installer only. Normal startup now derives the compact
+# drawer from the verified deep OSHB/Tischendorf corpus instead of downloading
+# this second source set.
 SOURCES = [
     {
         "source": "UHB v2.1.32",
@@ -40,14 +43,24 @@ USFM_CODES = {
     "COL":"Colossians","1TH":"1 Thessalonians","2TH":"2 Thessalonians","1TI":"1 Timothy","2TI":"2 Timothy","TIT":"Titus","PHM":"Philemon","HEB":"Hebrews",
     "JAS":"James","1PE":"1 Peter","2PE":"2 Peter","1JN":"1 John","2JN":"2 John","3JN":"3 John","JUD":"Jude","REV":"Revelation",
 }
-BOOK_ORDER = {b: i + 1 for i, b in enumerate(BOOKS)}
+BOOK_ORDER = {b: i + 1 for i, b in enumerate(CANONICAL_BOOKS)}
+
+
+def _safe_extract(payload: bytes, tmp: Path) -> None:
+    with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+        base = tmp.resolve()
+        for member in zf.infolist():
+            dest = (tmp / member.filename).resolve()
+            if dest != base and base not in dest.parents:
+                raise RuntimeError(f"Unsafe archive path: {member.filename}")
+        zf.extractall(tmp)
 
 
 def download_extract(url: str, dest: Path) -> Path:
-    if dest.exists() and any(dest.rglob("*.usfm")):
+    if dest.exists() and (any(dest.rglob("*.usfm")) or any(dest.rglob("*.sfm"))):
         return dest
     print(f"Downloading {url}")
-    req = urllib.request.Request(url, headers={"User-Agent": "BibleEngine-OriginalLanguageLab/0.5"})
+    req = urllib.request.Request(url, headers={"User-Agent": "BibleEngine-OriginalLanguageLab/1.0"})
     with urllib.request.urlopen(req, timeout=90) as response:
         payload = response.read()
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -55,8 +68,7 @@ def download_extract(url: str, dest: Path) -> Path:
     if tmp.exists():
         shutil.rmtree(tmp)
     tmp.mkdir(parents=True)
-    with zipfile.ZipFile(io.BytesIO(payload)) as zf:
-        zf.extractall(tmp)
+    _safe_extract(payload, tmp)
     roots = [p for p in tmp.iterdir() if p.is_dir()]
     source_root = roots[0] if len(roots) == 1 else tmp
     if dest.exists():
@@ -112,10 +124,10 @@ def main() -> int:
     counts = []
     for spec in SOURCES:
         counts.append(seed_source(spec))
-    if any(n < 10000 for n in counts):
-        print("Original-language corpus looks incomplete.", file=sys.stderr)
+    if any(n < 100000 for n in counts):
+        print("Legacy original-language compatibility corpus looks incomplete.", file=sys.stderr)
         return 1
-    print("Original-Language Lab corpus ready.")
+    print("Legacy Original-Language compatibility corpus ready.")
     return 0
 
 
