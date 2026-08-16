@@ -60,10 +60,12 @@ def research_js_v2():
     base = (STATIC / "research.js").read_text(encoding="utf-8")
     loader = f"""
 ;(()=>{{
-  if(document.querySelector('script[data-bible-atlas-v2]'))return;
-  const s=document.createElement('script');
-  s.src='/atlas.js?v={ASSET_VERSION}';s.dataset.bibleAtlasV2='1';
-  document.head.appendChild(s);
+  const load=(src,flag)=>{{
+    if(document.querySelector(`script[${{flag}}]`))return;
+    const s=document.createElement('script');s.src=src;s.setAttribute(flag,'1');document.head.appendChild(s);
+  }};
+  load('/atlas.js?v={ASSET_VERSION}','data-bible-atlas-v2');
+  load('/research-actions.js?v={ASSET_VERSION}','data-bible-research-actions');
 }})();
 """
     return Response(base + loader, media_type="application/javascript", headers=NO_STORE)
@@ -71,12 +73,20 @@ def research_js_v2():
 
 @router.get("/research.css")
 def research_css_v2():
-    body = (STATIC / "research.css").read_text(encoding="utf-8") + "\n\n" + (STATIC / "atlas.css").read_text(encoding="utf-8")
+    body = "\n\n".join([
+        (STATIC / "research.css").read_text(encoding="utf-8"),
+        (STATIC / "atlas.css").read_text(encoding="utf-8"),
+        (STATIC / "research_actions.css").read_text(encoding="utf-8"),
+    ])
     return Response(body, media_type="text/css", headers=NO_STORE)
 
 
 @router.get("/atlas.js")
 def atlas_js_v2(): return _asset("atlas.js", "application/javascript")
+
+
+@router.get("/research-actions.js")
+def research_actions_js(): return _asset("research_actions.js", "application/javascript")
 
 
 @router.get("/api/build")
