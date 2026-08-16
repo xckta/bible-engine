@@ -1,7 +1,7 @@
 import pytest
 
 from app.answering import ModelAnswer, Claim, validate_answer, answer_question
-from app.providers import CodexStatus, ProviderError
+from app.providers import ProviderError
 from app.retrieval import Passage
 
 P = Passage(id=1, translation="WEB", book="Jude", chapter=1, verse=6, text="Angels ...", score=1)
@@ -19,8 +19,8 @@ def test_missing_evidence_is_rejected():
 
 
 class FakeUnavailable:
-    def status(self):
-        return CodexStatus(installed=False, authenticated=False, chatgpt_auth=False)
+    def chat_json(self, prompt, schema):
+        raise ProviderError("Codex unavailable")
 
 
 def test_codex_is_required_no_fallback():
@@ -29,9 +29,6 @@ def test_codex_is_required_no_fallback():
 
 
 class FakeGood:
-    def status(self):
-        return CodexStatus(installed=True, authenticated=True, chatgpt_auth=True)
-
     def chat_json(self, prompt, schema):
         assert "EVIDENCE:" in prompt
         return {
@@ -47,9 +44,6 @@ class FakeGood:
 
 
 class FakeBad:
-    def status(self):
-        return CodexStatus(installed=True, authenticated=True, chatgpt_auth=True)
-
     def chat_json(self, prompt, schema):
         return {
             "claims": [
