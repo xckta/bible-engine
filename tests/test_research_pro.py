@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from app.asset_routes import ASSET_VERSION, build_identity, versioned_root
 from app.main import app
 from app.research_pro_routes import _reference_work_name, _shared_terms, _vault_evidence
@@ -19,15 +21,26 @@ def test_professional_research_routes_are_registered():
     assert required <= paths
 
 
-def test_cache_proof_root_is_the_first_runtime_match():
-    root_routes=[r for r in app.routes if getattr(r,'path',None)=='/' and 'GET' in getattr(r,'methods',set())]
-    assert root_routes
-    assert root_routes[0].endpoint.__module__=='app.asset_routes'
-    research_routes=[r for r in app.routes if getattr(r,'path',None)=='/research.js' and 'GET' in getattr(r,'methods',set())]
-    assert research_routes[0].endpoint.__module__=='app.asset_routes'
+def test_browser_receives_cache_proof_current_build():
+    client=TestClient(app)
+    root=client.get('/')
+    assert root.status_code==200
+    assert root.headers.get('cache-control','').startswith('no-store')
+    assert f'/app.js?v={ASSET_VERSION}' in root.text
+    assert f'/original.js?v={ASSET_VERSION}' in root.text
+
+    research=client.get('/research.js')
+    assert research.status_code==200
+    assert research.headers.get('cache-control','').startswith('no-store')
+    assert '/api/research-pro/worldview' in research.text
+    assert '/api/research-pro/deep-dive' in research.text
+
+    build=client.get('/api/build')
+    assert build.status_code==200
+    assert build.json()['version']=='2.0.0'
 
 
-def test_root_is_cache_proof_and_versions_core_assets():
+def test_root_builder_versions_core_assets():
     response=versioned_root()
     body=response.body.decode('utf-8')
     assert response.headers['cache-control'].startswith('no-store')
