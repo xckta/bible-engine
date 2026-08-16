@@ -53,6 +53,11 @@ try{
     Step 'Building Intertextual Graph...' {& $venv 'scripts\seed_intertext_graph.py'}
     Step 'Verifying Intertextual Graph...' {& $venv 'scripts\check_intertext_graph.py'}
   }else{Write-Host 'Intertextual Graph ready.' -ForegroundColor DarkGreen}
+  & $venv 'scripts\check_textual_witnesses.py' *> $null
+  if($LASTEXITCODE -ne 0){
+    Step 'Installing Textual Witness editions...' {& $venv 'scripts\seed_textual_witnesses.py'}
+    Step 'Verifying Textual Witness editions...' {& $venv 'scripts\check_textual_witnesses.py'}
+  }else{Write-Host 'Textual Witness Lab ready.' -ForegroundColor DarkGreen}
   Step 'Checking Oracle application...' {& $venv -c "import app.main; print('Application import OK')"}
   $listener=Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
   if($listener){throw 'Port 8000 is already in use. Close the older Bible Engine terminal first.'}
