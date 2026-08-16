@@ -118,11 +118,12 @@ try {
         if (-not $codex) { throw 'Codex installed, but Windows still cannot find the codex command. Close this window and run the launcher again.' }
     }
 
-    Write-Host "Codex command: $($codex.Source)"
-    Add-Content -Path $Log -Value ('Codex command: ' + $codex.Source)
-    $codexVersion = Invoke-Captured 'Checking Codex...' 'codex --version' 10
+    Write-Host "Codex launcher: $($codex.Source)"
+    Add-Content -Path $Log -Value ('Codex launcher: ' + $codex.Source)
+    $codexVersion = Invoke-Captured 'Checking Codex launcher...' 'codex --version' 10
     Write-Host "  $codexVersion"
-    Write-Host '  Authentication will be used by the first real Codex request; startup no longer probes codex login status.'
+    Invoke-Visible 'Resolving native Codex executable...' { & $venvPython 'scripts\check_codex.py' }
+    Write-Host '  Authentication will be used by the first real Codex request; startup does not probe codex login status.'
 
     Write-Host 'Checking Bible corpus...'
     & $venvPython 'scripts\check_corpus.py' 2>&1 | Tee-Object -FilePath $Log -Append
