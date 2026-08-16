@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .providers import CodexClient, ProviderError
+from .providers import CodexClient
 from .retrieval import Passage
 
 Classification = Literal["explicit", "strong_inference", "possible_inference", "not_established"]
@@ -92,16 +92,6 @@ def answer_question(question: str, passages: list[Passage], codex: CodexClient) 
             mode="no_evidence",
             insufficient_evidence=True,
             validation_errors=[],
-        )
-
-    status = codex.status()
-    if not status.ready:
-        if not status.installed:
-            raise ProviderError("Codex CLI is required but is not installed or not on PATH.")
-        if not status.authenticated:
-            raise ProviderError("Codex CLI is required but is not signed in. Run `codex login`.")
-        raise ProviderError(
-            "Bible Engine requires ChatGPT-authenticated Codex. Run `codex logout`, then `codex login`."
         )
 
     evidence_text, mapping = evidence_payload(passages)
