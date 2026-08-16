@@ -12,12 +12,13 @@ class TextRef:
     verse_start: int | None = None
     verse_end: int | None = None
     kind: str = "biblical"
+    chapter_end: int | None = None
 
 
 _NAMES = set(ALL_BIBLICAL_WORKS) | set(ALIASES.keys())
 BOOK_PATTERN = "|".join(sorted((re.escape(b) for b in _NAMES), key=len, reverse=True))
 REF_RE = re.compile(
-    rf"(?<!\w)(?P<book>{BOOK_PATTERN})\.?(?!\w)\s+(?P<chapter>\d+)(?::(?P<v1>\d+)(?:\s*[-–]\s*(?P<v2>\d+))?)?",
+    rf"(?<!\w)(?P<book>{BOOK_PATTERN})\.?(?!\w)\s+(?P<chapter>\d+)(?::(?P<v1>\d+)(?:\s*[-–—]\s*(?P<v2>\d+))?)?(?:\s*[-–—]\s*(?P<chapter_end>\d+))?",
     re.IGNORECASE,
 )
 
@@ -37,7 +38,7 @@ REF_WORK_ALIASES = {
 _REF_NAMES = set(REF_WORK_ALIASES) | {w.name.lower() for w in REFERENCE_WORKS}
 REF_WORK_PATTERN = "|".join(sorted((re.escape(x) for x in _REF_NAMES), key=len, reverse=True))
 REFERENCE_RE = re.compile(
-    rf"(?<!\w)(?P<work>{REF_WORK_PATTERN})(?!\w)(?:\s+(?P<chapter>\d+)(?::(?P<v1>\d+)(?:\s*[-–]\s*(?P<v2>\d+))?)?)?",
+    rf"(?<!\w)(?P<work>{REF_WORK_PATTERN})(?!\w)(?:\s+(?P<chapter>\d+)(?::(?P<v1>\d+)(?:\s*[-–—]\s*(?P<v2>\d+))?)?(?:\s*[-–—]\s*(?P<chapter_end>\d+))?)?",
     re.IGNORECASE,
 )
 
@@ -51,7 +52,7 @@ def extract_references(text: str) -> list[TextRef]:
             continue
         v1 = int(m.group("v1")) if m.group("v1") else None
         v2 = int(m.group("v2")) if m.group("v2") else v1
-        refs.append(TextRef(book, int(m.group("chapter")), v1, v2, "biblical"))
+        refs.append(TextRef(book, int(m.group("chapter")), v1, v2, "biblical", int(m.group("chapter_end")) if m.group("chapter_end") else None))
         spans.append(m.span())
     for m in REFERENCE_RE.finditer(text):
         if any(max(m.start(), a) < min(m.end(), b) for a, b in spans):
@@ -61,5 +62,5 @@ def extract_references(text: str) -> list[TextRef]:
         chapter = int(m.group("chapter")) if m.group("chapter") else 0
         v1 = int(m.group("v1")) if m.group("v1") else None
         v2 = int(m.group("v2")) if m.group("v2") else v1
-        refs.append(TextRef(work, chapter, v1, v2, "reference"))
+        refs.append(TextRef(work, chapter, v1, v2, "reference", int(m.group("chapter_end")) if m.group("chapter_end") else None))
     return refs
