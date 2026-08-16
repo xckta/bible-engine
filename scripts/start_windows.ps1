@@ -21,6 +21,24 @@ function Probe([scriptblock]$Action){
   try {& $Action *> $null;$rc=$LASTEXITCODE} finally {$ErrorActionPreference=$oldPreference}
   return [int]$rc
 }
+function OptionalNative([string]$Label,[scriptblock]$Action){
+  Write-Host $Label -ForegroundColor DarkYellow;Add-Content $Log ('>>> '+$Label)
+  $oldPreference=$ErrorActionPreference;$ErrorActionPreference='Continue'
+  try {& $Action 2>&1 | Tee-Object -FilePath $Log -Append;$rc=$LASTEXITCODE} finally {$ErrorActionPreference=$oldPreference}
+  if($rc -ne 0){Write-Host "Warning: $Label did not complete (exit $rc). Continuing with the checked-out build." -ForegroundColor Yellow;Add-Content $Log ("WARN: $Label exit $rc")}
+  return [int]$rc
+}
+function ShowGitBuild(){
+  $git=Get-Command git -ErrorAction SilentlyContinue
+  if(-not $git -or -not (Test-Path (Join-Path $Root '.git'))){Write-Host 'Git build identity unavailable.' -ForegroundColor DarkGray;return}
+  $branch=(& $git.Source branch --show-current 2>$null).Trim();$commit=(& $git.Source rev-parse --short HEAD 2>$null).Trim();$dirty=@(& $git.Source status --porcelain 2>$null)
+  Write-Host ("Checkout: {0}@{1}" -f ($branch?$branch:'detached'),$commit) -ForegroundColor Cyan;Add-Content $Log ("Checkout: $branch@$commit")
+  if($branch -eq 'main' -and $dirty.Count -eq 0){
+    $rc=OptionalNative 'Checking for a safe fast-forward update...' {& $git.Source pull --ff-only origin main}
+    if($rc -eq 0){$commit=(& $git.Source rev-parse --short HEAD 2>$null).Trim();Write-Host "Running main@$commit" -ForegroundColor Green;Add-Content $Log ("Running main@$commit")}
+  }elseif($dirty.Count -gt 0){Write-Host 'Automatic update skipped: working tree has local changes. Nothing was overwritten.' -ForegroundColor Yellow;Add-Content $Log 'Automatic update skipped: dirty worktree'}
+  else{Write-Host "Automatic update skipped: checkout is '$branch', not main. Nothing was switched automatically." -ForegroundColor Yellow;Add-Content $Log ("Automatic update skipped: branch $branch")}
+}
 function Fail([string]$Message){
   Write-Host '';Write-Host '========================================' -ForegroundColor Red
   Write-Host '         BIBLE ENGINE FAILED' -ForegroundColor Red
@@ -35,6 +53,7 @@ Write-Host '║       BIBLE ENGINE // ORACLE        ║' -ForegroundColor DarkYe
 Write-Host '╚══════════════════════════════════════╝' -ForegroundColor DarkYellow
 Write-Host "Folder: $Root";Write-Host 'Model: gpt-5.6-luna // medium';Write-Host ''
 try{
+  ShowGitBuild
   $py=Get-Command py -ErrorAction SilentlyContinue;if(-not $py){$py=Get-Command python -ErrorAction SilentlyContinue};if(-not $py){throw 'Python 3.11+ was not found.'};$pyCommand=$py.Source
   Write-Host 'Checking Python...';& $pyCommand --version
   $venv=Join-Path $Root '.venv\Scripts\python.exe';if(-not(Test-Path $venv)){Step 'Creating local Python environment...' {& $pyCommand -m venv .venv}}
@@ -61,7 +80,7 @@ try{
 
   Step 'Checking Oracle application...' {& $venv -c "import app.main; print('Application import OK')"}
   $listener=Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue;if($listener){throw 'Port 8000 is already in use. Close the older Bible Engine terminal first.'}
-  Write-Host '';Write-Host 'ORACLE ONLINE' -ForegroundColor Green;Write-Host 'http://127.0.0.1:8000';Write-Host 'Keep this terminal open. Ctrl+C stops the Oracle.';Write-Host ''
+  Write-Host '';Write-Host 'ORACLE ONLINE' -ForegroundColor Green;Write-Host 'http://127.0.0.1:8000';Write-Host 'Build identity: http://127.0.0.1:8000/api/build';Write-Host 'Keep this terminal open. Ctrl+C stops the Oracle.';Write-Host ''
   Start-Process -FilePath (Join-Path $Root '.venv\Scripts\pythonw.exe') -ArgumentList 'scripts\open_browser.py' -WorkingDirectory $Root|Out-Null
   $old=$ErrorActionPreference;$ErrorActionPreference='Continue'
   try {& $venv -m uvicorn app.main:app --host 127.0.0.1 --port 8000;$rc=$LASTEXITCODE} finally {$ErrorActionPreference=$old}
