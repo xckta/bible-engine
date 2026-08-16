@@ -3,15 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from .answering import answer_question
+from .books import normalize_book
 from .config import settings
 from .db import init_db, library_stats, list_translations, session
 from .esv import ESVClient, ESVError
 from .local_settings import esv_key, masked_key, preferences, save_preferences, save_settings
+from .original_languages import lab_stats, lemma_occurrences, search_words, verse_words
 from .providers import CodexClient, ProviderError
 from .retrieval import hydrate_canonical_esv, retrieve
 from .studies import (
@@ -28,7 +30,7 @@ from .studies import (
     update_project,
 )
 
-app = FastAPI(title="Bible Engine // Oracle", version="0.4.0")
+app = FastAPI(title="Bible Engine // Oracle", version="0.5.0")
 
 
 class AskRequest(BaseModel):
@@ -110,9 +112,10 @@ def health():
     with session(settings.db_path) as conn:
         stats = library_stats(conn)
         translations = list_translations(conn)
+        original = lab_stats(conn)
     return {
         "status": "ok" if status.ready else "provider_required",
-        "version": "0.4.0",
+        "version": "0.5.0",
         "database": str(settings.db_path),
         "model": settings.codex_model,
         "reasoning_effort": prefs["reasoning_effort"],
@@ -126,6 +129,7 @@ def health():
         "esv": {"configured": bool(esv_key(settings.local_settings_path)), "masked_key": masked_key(settings.local_settings_path)},
         "preferences": prefs,
         "library": stats,
+        "original_languages": original,
         "translations": translations,
         "studies": {"count": len(list_projects(settings.studies_path))},
     }
@@ -135,6 +139,68 @@ def health():
 def library():
     with session(settings.db_path) as conn:
         return library_stats(conn)
+
+
+@app.get("/api/original/status")
+def original_status():
+    with session(settings.db_path) as conn:
+        stats = lab_stats(conn)
+    return {
+        **stats,
+        "provenance": [
+            {
+                "source": "UHB v2.1.32",
+                "language": "Biblical Hebrew / Aramaic",
+                "publisher": "unfoldingWord",
+                "license": "CC BY-SA 4.0; based on Open Scriptures Hebrew Bible / WLC",
+                "url": "https://git.door43.org/unfoldingWord/hbo_uhb",
+            },
+            {
+                "source": "UGNT v0.34",
+                "language": "Koine Greek",
+                "publisher": "unfoldingWord",
+                "license": "CC BY-SA 4.0",
+                "url": "https://git.door43.org/unfoldingWord/el-x-koine_ugnt",
+            },
+        ],
+    }
+
+
+@app.get("/api/original/verse")
+def original_verse(book: str, chapter: int = Query(ge=1, le=200), verse: int = Query(ge=1, le=200)):
+    normalized = normalize_book(book)
+    if not normalized:
+        raise HTTPException(400, detail={"code": "unknown_book", "message": f"Unknown biblical book: {book}"})
+    with session(settings.db_path) as conn:
+        words = verse_words(conn, normalized, chapter, verse)
+    if not words:
+        raise HTTPException(404, detail={"code": "original_verse_not_found", "message": "Original-language data for that verse is not installed or was not found."})
+    return {
+        "reference": f"{normalized} {chapter}:{verse}",
+        "language": words[0]["language"],
+        "source": words[0]["source"],
+        "words": words,
+    }
+
+
+@app.get("/api/original/lemma")
+def original_lemma(
+    lemma: str = Query(min_length=1, max_length=120),
+    language: Literal["hebrew", "aramaic", "greek"] | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+):
+    with session(settings.db_path) as conn:
+        return lemma_occurrences(conn, lemma, language, limit)
+
+
+@app.get("/api/original/search")
+def original_search(
+    q: str = Query(min_length=1, max_length=120),
+    language: Literal["hebrew", "aramaic", "greek"] | None = None,
+    limit: int = Query(default=80, ge=1, le=300),
+):
+    with session(settings.db_path) as conn:
+        return {"query": q, "items": search_words(conn, q, language, limit)}
 
 
 @app.get("/api/settings")
