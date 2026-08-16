@@ -4,6 +4,7 @@ from app.retrieval import Evidence
 
 CAN=Evidence('B1','canonical','ESV','Jude',1,6,6,'canonical text',10)
 REF=Evidence('R1','pseudepigrapha','Charles','1 Enoch',6,1,1,'reference text',8)
+SUPP=Evidence('V1','vault','Scholar','Journal article §3',None,None,None,'supplemental scholarly claim',5,source_label='Modern scholarship')
 
 class Fake:
     def status(self):return SimpleNamespace(ready=True,detail='')
@@ -22,6 +23,13 @@ def test_reference_cannot_masquerade_as_canonical():
     a=ModelAnswer(answer='x',claims=[Claim(text='x',evidence_ids=['E2'],classification='explicit',authority='canonical')],insufficient_evidence=False)
     errs=validate_answer(a,{'E1':CAN,'E2':REF})
     assert any('noncanonical' in x for x in errs)
+
+
+def test_supplemental_vault_is_separate_authority():
+    good=ModelAnswer(answer='x',claims=[Claim(text='x',evidence_ids=['E3'],classification='explicit',authority='supplemental')],insufficient_evidence=False)
+    assert validate_answer(good,{'E1':CAN,'E2':REF,'E3':SUPP})==[]
+    bad=ModelAnswer(answer='x',claims=[Claim(text='x',evidence_ids=['E3'],classification='explicit',authority='canonical')],insufficient_evidence=False)
+    assert any('noncanonical' in x for x in validate_answer(bad,{'E1':CAN,'E2':REF,'E3':SUPP}))
 
 
 def test_codex_output_schema_requires_every_object_property():
