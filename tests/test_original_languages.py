@@ -33,6 +33,14 @@ def test_parses_alignment_milestones_without_duplicates():
     assert rows[0]["lemma"] == "אֱלֹהִים"
 
 
+def test_uhb_aramaic_morphology_marks_word_aramaic():
+    text = r'''\c 2
+\v 4 \w אֱדַיִן|x-strong="H0116" x-lemma="אֱדַיִן" x-morph="Ar,D"\w*
+'''
+    rows = parse_original_usfm(text, book="Daniel", book_order=27, language="hebrew", source="UHB v2.1.32")
+    assert rows[0]["language"] == "aramaic"
+
+
 def test_transliteration_is_unicode_safe():
     assert transliterate("λόγος", "greek").startswith("logos")
     assert "ʾ" in transliterate("אֱלֹהִים", "hebrew")
@@ -52,5 +60,6 @@ def test_original_word_queries(tmp_path: Path):
         occ = lemma_occurrences(conn, "ἀρχή", "greek", 20)
         assert occ["total"] == 2
         assert len(search_words(conn, "arch", "greek", 20)) == 2
+        assert len(search_words(conn, "G07460", "greek", 20)) == 2
         stats = lab_stats(conn)
         assert stats["total_words"] == 3
