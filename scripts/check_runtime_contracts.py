@@ -70,19 +70,20 @@ def audit_atlas_storage(errors:list[str])->None:
     try:
         from app.atlas_rich import get_place,parse_openbible_line,query_places,replace_atlas
         from app.db import init_db,session
-        sample={'id':'a-contract','friendly_id':'Jerusalem','type':'settlement','translation_name_counts':{'Jerusalem':3},'identifications':[{'score':{'time_total':800},'resolutions':[{'lonlat':'35.235,31.778','best_time_score':900,'description':'Jerusalem'}]}],'verses':[{'osis':'Matt.21.1','readable':'Matthew 21:1','translations':['esv']}]} 
+        sample={'id':'a-contract','friendly_id':'Jerusalem','type':'place','geojson_file':'geometry/a-contract.geojson','translation_name_counts':{'Jerusalem':3},'identifications':[{'score':{'time_total':800},'types':['settlement'],'resolutions':[{'lonlat':'35.235,31.778','best_time_score':900,'description':'Jerusalem'}]}],'verses':[{'osis':'Matt.21.1','readable':'Matthew 21:1','translations':['esv']}]} 
         with tempfile.TemporaryDirectory(prefix='bible-engine-atlas-') as tmp:
             db=Path(tmp)/'atlas.db';init_db(db);record=parse_openbible_line(json.dumps(sample))
             with session(db) as conn:
                 result=replace_atlas(conn,[record]);hits=query_places(conn,q='Jerusalem');detail=get_place(conn,'a-contract')
         if result.get('place_count')!=1 or not hits.get('items'):errors.append('atlas storage/search smoke did not retain the sample place')
         if detail.get('occurrences',[{}])[0].get('reference')!='Matthew 21:1':errors.append('atlas occurrence smoke lost the sample Scripture reference')
+        if detail.get('detailed_type')!='settlement' or detail.get('geometry_path')!='geometry/a-contract.geojson':errors.append('atlas smoke lost identification type or source geometry metadata')
     except Exception as exc:errors.append(f'atlas runtime smoke failed: {type(exc).__name__}: {exc}')
 
 def audit_routes(errors:list[str])->None:
     try:
         from app.main import app
-        paths=set(app.openapi().get('paths',{}));required={'/','/originals','/api/health','/api/ask','/api/graph','/api/graph/status','/api/original/lab/status','/api/research/status','/api/witness/status','/api/worldview/periods','/api/traditions/matrix','/api/timeline','/api/atlas/places','/api/atlas/explorer/status','/api/atlas/explorer/places','/api/atlas/explorer/place/{place_id}','/api/atlas/explorer/journeys','/api/atlas/explorer/journeys/{journey_id}','/api/deep-dive','/api/vault'}
+        paths=set(app.openapi().get('paths',{}));required={'/','/originals','/api/health','/api/ask','/api/graph','/api/graph/status','/api/original/lab/status','/api/research/status','/api/witness/status','/api/worldview/periods','/api/traditions/matrix','/api/timeline','/api/atlas/places','/api/atlas/explorer/status','/api/atlas/explorer/places','/api/atlas/explorer/place/{place_id}','/api/atlas/explorer/place/{place_id}/geometry','/api/atlas/explorer/journeys','/api/atlas/explorer/journeys/{journey_id}','/api/deep-dive','/api/vault'}
         missing=sorted(required-paths)
         if missing:errors.append('application OpenAPI contract missing: '+', '.join(missing))
     except Exception as exc:errors.append(f'application route smoke failed: {type(exc).__name__}: {exc}')
