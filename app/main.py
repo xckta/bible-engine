@@ -12,6 +12,7 @@ from .books import normalize_book
 from .config import settings
 from .db import init_db, library_stats, list_translations, session
 from .esv import ESVClient, ESVError
+from .intertext_graph import EDGE_TYPES, graph_for, graph_stats
 from .local_settings import esv_key, masked_key, preferences, save_preferences, save_settings
 from .original_languages import lab_stats, lemma_occurrences, search_words, verse_words
 from .providers import CodexClient, ProviderError
@@ -30,7 +31,7 @@ from .studies import (
     update_project,
 )
 
-app = FastAPI(title="Bible Engine // Oracle", version="0.5.0")
+app = FastAPI(title="Bible Engine // Oracle", version="0.6.0")
 
 
 class AskRequest(BaseModel):
@@ -115,6 +116,16 @@ def original_css():
     return FileResponse(Path(__file__).parent / "static" / "original.css", media_type="text/css")
 
 
+@app.get("/graph.js")
+def graph_js():
+    return FileResponse(Path(__file__).parent / "static" / "graph.js", media_type="application/javascript")
+
+
+@app.get("/graph.css")
+def graph_css():
+    return FileResponse(Path(__file__).parent / "static" / "graph.css", media_type="text/css")
+
+
 @app.get("/api/health")
 def health():
     prefs = preferences(settings.local_settings_path)
@@ -123,23 +134,19 @@ def health():
         stats = library_stats(conn)
         translations = list_translations(conn)
         original = lab_stats(conn)
+        graph = graph_stats(conn)
     return {
         "status": "ok" if status.ready else "provider_required",
-        "version": "0.5.0",
+        "version": "0.6.0",
         "database": str(settings.db_path),
         "model": settings.codex_model,
         "reasoning_effort": prefs["reasoning_effort"],
-        "codex": {
-            "installed": status.installed,
-            "ready": status.ready,
-            "version": status.version,
-            "detail": status.detail,
-            "executable": status.executable,
-        },
+        "codex": {"installed": status.installed,"ready": status.ready,"version": status.version,"detail": status.detail,"executable": status.executable},
         "esv": {"configured": bool(esv_key(settings.local_settings_path)), "masked_key": masked_key(settings.local_settings_path)},
         "preferences": prefs,
         "library": stats,
         "original_languages": original,
+        "graph": graph,
         "translations": translations,
         "studies": {"count": len(list_projects(settings.studies_path))},
     }
@@ -151,6 +158,25 @@ def library():
         return library_stats(conn)
 
 
+@app.get("/api/graph/status")
+def graph_status():
+    with session(settings.db_path) as conn:
+        stats = graph_stats(conn)
+    return {**stats, "edge_types": EDGE_TYPES}
+
+
+@app.get("/api/graph")
+def graph_get(
+    reference: str = Query(min_length=2, max_length=180),
+    depth: int = Query(default=1, ge=1, le=3),
+    types: str = Query(default="", max_length=500),
+    limit: int = Query(default=120, ge=10, le=300),
+):
+    selected = [x.strip() for x in types.split(",") if x.strip()]
+    with session(settings.db_path) as conn:
+        return graph_for(conn, reference, depth=depth, edge_types=selected, limit=limit)
+
+
 @app.get("/api/original/status")
 def original_status():
     with session(settings.db_path) as conn:
@@ -158,20 +184,8 @@ def original_status():
     return {
         **stats,
         "provenance": [
-            {
-                "source": "UHB v2.1.32",
-                "language": "Biblical Hebrew / Aramaic",
-                "publisher": "unfoldingWord",
-                "license": "CC BY-SA 4.0; based on Open Scriptures Hebrew Bible / WLC",
-                "url": "https://git.door43.org/unfoldingWord/hbo_uhb",
-            },
-            {
-                "source": "UGNT v0.34",
-                "language": "Koine Greek",
-                "publisher": "unfoldingWord",
-                "license": "CC BY-SA 4.0",
-                "url": "https://git.door43.org/unfoldingWord/el-x-koine_ugnt",
-            },
+            {"source":"UHB v2.1.32","language":"Biblical Hebrew / Aramaic","publisher":"unfoldingWord","license":"CC BY-SA 4.0; based on Open Scriptures Hebrew Bible / WLC","url":"https://git.door43.org/unfoldingWord/hbo_uhb"},
+            {"source":"UGNT v0.34","language":"Koine Greek","publisher":"unfoldingWord","license":"CC BY-SA 4.0","url":"https://git.door43.org/unfoldingWord/el-x-koine_ugnt"},
         ],
     }
 
@@ -185,30 +199,17 @@ def original_verse(book: str, chapter: int = Query(ge=1, le=200), verse: int = Q
         words = verse_words(conn, normalized, chapter, verse)
     if not words:
         raise HTTPException(404, detail={"code": "original_verse_not_found", "message": "Original-language data for that verse is not installed or was not found."})
-    return {
-        "reference": f"{normalized} {chapter}:{verse}",
-        "language": words[0]["language"],
-        "source": words[0]["source"],
-        "words": words,
-    }
+    return {"reference": f"{normalized} {chapter}:{verse}","language": words[0]["language"],"source": words[0]["source"],"words": words}
 
 
 @app.get("/api/original/lemma")
-def original_lemma(
-    lemma: str = Query(min_length=1, max_length=120),
-    language: Literal["hebrew", "aramaic", "greek"] | None = None,
-    limit: int = Query(default=100, ge=1, le=500),
-):
+def original_lemma(lemma: str = Query(min_length=1, max_length=120),language: Literal["hebrew", "aramaic", "greek"] | None = None,limit: int = Query(default=100, ge=1, le=500)):
     with session(settings.db_path) as conn:
         return lemma_occurrences(conn, lemma, language, limit)
 
 
 @app.get("/api/original/search")
-def original_search(
-    q: str = Query(min_length=1, max_length=120),
-    language: Literal["hebrew", "aramaic", "greek"] | None = None,
-    limit: int = Query(default=80, ge=1, le=300),
-):
+def original_search(q: str = Query(min_length=1, max_length=120),language: Literal["hebrew", "aramaic", "greek"] | None = None,limit: int = Query(default=80, ge=1, le=300)):
     with session(settings.db_path) as conn:
         return {"query": q, "items": search_words(conn, q, language, limit)}
 
@@ -216,12 +217,7 @@ def original_search(
 @app.get("/api/settings")
 def get_settings():
     prefs = preferences(settings.local_settings_path)
-    return {
-        "esv_configured": bool(esv_key(settings.local_settings_path)),
-        "esv_masked_key": masked_key(settings.local_settings_path),
-        "model": settings.codex_model,
-        "preferences": prefs,
-    }
+    return {"esv_configured": bool(esv_key(settings.local_settings_path)),"esv_masked_key": masked_key(settings.local_settings_path),"model": settings.codex_model,"preferences": prefs}
 
 
 @app.post("/api/settings/esv")
@@ -307,13 +303,9 @@ def studies_delete_item(project_id: str, kind: str, item_id: str):
 def studies_export(project_id: str, format: Literal["markdown", "json"] = "markdown"):
     try:
         if format == "json":
-            body = export_json(settings.studies_path, project_id)
-            media = "application/json"
-            ext = "json"
+            body = export_json(settings.studies_path, project_id);media = "application/json";ext = "json"
         else:
-            body = export_markdown(settings.studies_path, project_id)
-            media = "text/markdown; charset=utf-8"
-            ext = "md"
+            body = export_markdown(settings.studies_path, project_id);media = "text/markdown; charset=utf-8";ext = "md"
         filename = f"bible-engine-study-{project_id}.{ext}"
         return Response(body, media_type=media, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
     except (ValueError, FileNotFoundError, OSError) as exc:
@@ -327,46 +319,30 @@ def ask(req: AskRequest):
     status = codex.status()
     if not status.ready:
         raise HTTPException(503, detail={"code": "codex_unavailable", "message": status.detail or "Codex CLI is unavailable."})
-
     include_deuterocanon = prefs["include_deuterocanon"] if req.include_deuterocanon is None else req.include_deuterocanon
     include_reference = prefs["include_reference"] if req.include_reference is None else req.include_reference
     top_k_canonical = req.top_k_canonical or prefs["top_k_canonical"]
     top_k_reference = prefs["top_k_reference"] if req.top_k_reference is None else req.top_k_reference
-
     with session(settings.db_path) as conn:
-        evidence = retrieve(
-            conn,
-            req.question,
-            top_k_canonical,
-            top_k_reference,
-            include_deuterocanon,
-            include_reference,
-        )
-
+        evidence = retrieve(conn,req.question,top_k_canonical,top_k_reference,include_deuterocanon,include_reference)
     if any(e.tier == "canonical" for e in evidence):
         key = esv_key(settings.local_settings_path)
         if not key:
-            raise HTTPException(428, detail={
-                "code": "esv_key_required",
-                "message": "Canonical Scripture is configured to display only ESV. Add your ESV API key in Oracle Settings.",
-            })
+            raise HTTPException(428, detail={"code":"esv_key_required","message":"Canonical Scripture is configured to display only ESV. Add your ESV API key in Oracle Settings."})
         try:
             evidence = hydrate_canonical_esv(evidence, ESVClient(key, settings.esv_base_url))
         except ESVError as exc:
             raise HTTPException(502, detail={"code": "esv_error", "message": str(exc)}) from exc
-
     project_context = ""
     if req.project_id:
         try:
             project_context = build_context(settings.studies_path, req.project_id, prefs["study_context_chars"])
         except (ValueError, FileNotFoundError, OSError) as exc:
             raise _study_error(exc) from exc
-
     try:
         result = answer_question(req.question, evidence, codex, project_context=project_context)
     except ProviderError as exc:
         raise HTTPException(502, detail={"code": "codex_error", "message": str(exc)}) from exc
-
     payload = result.__dict__
     if req.project_id and result.mode == "codex_closed_corpus":
         try:
