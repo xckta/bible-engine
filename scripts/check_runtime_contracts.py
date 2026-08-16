@@ -80,14 +80,23 @@ def audit_atlas_storage(errors:list[str])->None:
         if detail.get('detailed_type')!='settlement' or detail.get('geometry_path')!='geometry/a-contract.geojson':errors.append('atlas smoke lost identification type or source geometry metadata')
     except Exception as exc:errors.append(f'atlas runtime smoke failed: {type(exc).__name__}: {exc}')
 
+def audit_research_bundle(errors:list[str])->None:
+    try:
+        js=(ROOT/'app'/'static'/'research.js').read_text(encoding='utf-8')
+        required=['/api/research-pro/witness/chapter','/api/research-pro/worldview','/api/research-pro/traditions','/api/research-pro/deep-dive','window.BibleEngineAtlas']
+        missing=[x for x in required if x not in js]
+        if missing:errors.append('research v2 bundle missing contracts: '+', '.join(missing))
+        if 'Atlas / Temple / Cosmology Explorer' in js:errors.append('legacy Atlas shell is still present in the served Research Console')
+    except Exception as exc:errors.append(f'research bundle audit failed: {type(exc).__name__}: {exc}')
+
 def audit_routes(errors:list[str])->None:
     try:
         from app.main import app
-        paths=set(app.openapi().get('paths',{}));required={'/','/originals','/api/health','/api/ask','/api/graph','/api/graph/status','/api/original/lab/status','/api/research/status','/api/witness/status','/api/worldview/periods','/api/traditions/matrix','/api/timeline','/api/atlas/places','/api/atlas/explorer/status','/api/atlas/explorer/places','/api/atlas/explorer/place/{place_id}','/api/atlas/explorer/place/{place_id}/geometry','/api/atlas/explorer/journeys','/api/atlas/explorer/journeys/{journey_id}','/api/deep-dive','/api/vault'}
+        paths=set(app.openapi().get('paths',{}));required={'/','/api/build','/originals','/api/health','/api/ask','/api/graph','/api/graph/status','/api/original/lab/status','/api/research/status','/api/witness/status','/api/worldview/periods','/api/traditions/matrix','/api/timeline','/api/atlas/places','/api/atlas/explorer/status','/api/atlas/explorer/places','/api/atlas/explorer/place/{place_id}','/api/atlas/explorer/place/{place_id}/geometry','/api/atlas/explorer/journeys','/api/atlas/explorer/journeys/{journey_id}','/api/deep-dive','/api/vault','/api/research-pro/witness/verse','/api/research-pro/witness/chapter','/api/research-pro/worldview','/api/research-pro/traditions','/api/research-pro/deep-dive','/api/research-pro/vault/{source_id}'}
         missing=sorted(required-paths)
         if missing:errors.append('application OpenAPI contract missing: '+', '.join(missing))
     except Exception as exc:errors.append(f'application route smoke failed: {type(exc).__name__}: {exc}')
 
 def main()->int:
-    errors=[];audit_app_imports(errors);audit_script_import_symbols(errors);audit_graph_seed(errors);audit_textual_witness_storage(errors);audit_atlas_storage(errors);audit_routes(errors);return _fail(errors)
+    errors=[];audit_app_imports(errors);audit_script_import_symbols(errors);audit_graph_seed(errors);audit_textual_witness_storage(errors);audit_atlas_storage(errors);audit_research_bundle(errors);audit_routes(errors);return _fail(errors)
 if __name__=='__main__':raise SystemExit(main())
