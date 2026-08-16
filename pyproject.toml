@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bible-engine"
-version = "1.0.0"
-description = "Local provenance-first biblical research operating system with Oracle synthesis, studies, original languages, intertext graph, textual witnesses, research tools, and custom corpus vault."
+version = "2.0.0"
+description = "Local provenance-first biblical research operating system with Oracle synthesis, studies, original languages, intertext graph, textual witnesses, evidence workbench, biblical atlas, and custom corpus vault."
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
