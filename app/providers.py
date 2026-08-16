@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,45 @@ from pathlib import Path
 
 class ProviderError(RuntimeError):
     """Raised when the required Codex CLI provider cannot complete a request."""
+
+
+def _clean_codex_error(stderr: str, stdout: str) -> str:
+    """Return the actionable Codex error without echoing the evidence prompt.
+
+    Codex can write prompt/evidence context to stderr before a machine-readable
+    ``ERROR: {...}`` line. Surfacing the raw tail leaks corpus text into the UI and
+    hides the actual failure. Prefer the structured error message when present.
+    """
+    combined = "\n".join(x for x in (stderr, stdout) if x).strip()
+    lines = combined.splitlines()
+    for line in reversed(lines):
+        candidate = line.strip()
+        if candidate.startswith("ERROR:"):
+            candidate = candidate[6:].strip()
+        if not candidate.startswith("{"):
+            continue
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        err = payload.get("error", payload) if isinstance(payload, dict) else {}
+        if isinstance(err, dict):
+            message = str(err.get("message", "")).strip()
+            code = str(err.get("code", "")).strip()
+            if message:
+                return f"{code}: {message}" if code else message
+
+    # Fallback: remove evidence rows and protocol noise, then keep a bounded tail.
+    useful = []
+    for line in lines:
+        stripped = line.strip()
+        if re.match(r"^E\d+\s*\|", stripped):
+            continue
+        if stripped in {"EVIDENCE:", "USER QUESTION:"}:
+            continue
+        useful.append(line)
+    detail = "\n".join(useful).strip() or "Codex exited without an error message."
+    return detail[-1600:]
 
 
 def _creationflags() -> int:
@@ -161,7 +201,7 @@ class CodexClient:
             stdout = run.stdout.decode("utf-8", errors="replace") if run.stdout else ""
             stderr = run.stderr.decode("utf-8", errors="replace") if run.stderr else ""
             if run.returncode != 0:
-                detail = (stderr or stdout or "Codex exited without an error message.").strip()[-3000:]
+                detail = _clean_codex_error(stderr, stdout)
                 lower = detail.lower()
                 if any(word in lower for word in ("login", "sign in", "signin", "unauthorized", "authentication", "401")):
                     raise ProviderError(
