@@ -69,9 +69,19 @@ def parse_oshb_xml(path: Path, verse_map: dict[tuple[str, int, int], tuple[str, 
 
 
 def parse_tischendorf_file(path: Path) -> list[dict]:
+    """Parse Tischendorf word-per-line records without assuming verse-slot uniqueness.
+
+    The source's third reference component is a textual slot, not a guaranteed
+    globally unique record identity. Some critical-text records reuse a slot.
+    Bible Engine therefore assigns a monotonically increasing record position
+    within each verse for storage/display ordering and keeps the original source
+    reference in a stable file+line provenance ID.
+    """
     rows: list[dict] = []
-    for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
-        line = line.strip()
+    verse_record_counts: dict[tuple[str, int, int], int] = {}
+    seen_exact: set[tuple] = set()
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8-sig", errors="replace").splitlines(), 1):
+        line = raw_line.strip()
         if not line: continue
         parts = line.split()
         if len(parts) < 6: continue
@@ -79,14 +89,21 @@ def parse_tischendorf_file(path: Path) -> list[dict]:
         book = TISCH_BOOKS.get(code.upper())
         m = re.fullmatch(r"(\d+):(\d+)\.(\d+)", ref_token)
         if not book or not m: continue
-        chapter, verse, position = map(int, m.groups()); lemma = parts[5]; alt = ""
+        chapter, verse, source_slot = map(int, m.groups()); lemma = parts[5]; alt = ""
         if "!" in parts:
             idx = parts.index("!")
             if idx + 1 < len(parts): alt = parts[idx + 1]
+        exact = (code.upper(), chapter, verse, source_slot, surface, morph, strong, lemma, alt)
+        if exact in seen_exact:
+            continue
+        seen_exact.add(exact)
+        verse_key = (book, chapter, verse)
+        position = verse_record_counts.get(verse_key, 0) + 1
+        verse_record_counts[verse_key] = position
         rows.append({
             "book": book, "book_order": BOOK_ORDER[book], "chapter": chapter, "verse": verse, "position": position,
             "source_book": book, "source_chapter": chapter, "source_verse": verse, "verse_mapping_type": "same",
-            "source_word_id": f"{code.upper()}-{chapter}-{verse}-{position}", "surface": surface,
+            "source_word_id": f"{path.name}:L{line_number}:{ref_token}", "surface": surface,
             "surface_normalized": normalize_word(surface), "lemma": lemma, "lemma_normalized": normalize_word(lemma),
             "alt_lemma": alt, "strongs": "G" + strong if strong.isdigit() else strong,
             "morph": morph, "morph_expanded": expand_greek_morph(morph), "transliteration": transliterate_greek(surface),
